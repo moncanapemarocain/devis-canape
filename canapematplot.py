@@ -1,22 +1,87 @@
 
 
 
-def _format_valise_counts_console(sizes, counts, total):
+def _format_valise_counts_console(
+    sizes, counts, total, order=("gauche", "bas", "droite")
+):
     """
-    Agrège les quantités par dimension pour l'affichage console des coussins *valise*.
+    Affichage console *valise* : agrège les quantités par dimension et trie selon
+    l'ordre des côtés spécifié (défaut: gauche, bas, droite).
     Exemple : "4x86 / 3x83 / 3x81 - total 10".
-    `sizes` : dict {"bas":int,"gauche":int,"droite":int (optionnel)}
-    `counts`: dict même clés -> quantités posées par côté.
+
+    Paramètres :
+      sizes  : dict {"bas":int,"gauche":int,"droite":int (optionnel)}
+      counts : dict même clés -> quantités posées par côté.
+      total  : nombre total de coussins posés.
+      order  : ordre de priorité des côtés pour le tri (tuple/list).
     """
     from collections import defaultdict
+
+    # Dans certains cas, best["counts"] peut ne pas exister ; counts peut être None.
+    if counts is None:
+        counts = {}
+
+    # 1) Agrégation par dimension : somme des coussins pour chaque taille.
     agg = defaultdict(int)
     for side, size in sizes.items():
-        if side in counts and counts[side] > 0:
-            agg[size] += counts[side]
+        c = counts.get(side, 0)
+        if c > 0:
+            agg[size] += c
+
+    # Si aucun coussin, on affiche juste le total.
     if not agg:
         return f"- total {total}"
-    parts = [f"{n}x{sz}" for sz, n in sorted(agg.items(), key=lambda kv: (-kv[0], -kv[1]))]
+
+    # 2) Déterminer pour chaque dimension le premier côté qui l'utilise,
+    #    selon l'ordre de priorité indiqué. Ce côté servira à trier les tailles.
+    side_index = {side: i for i, side in enumerate(order)}
+    first_side_for_size = {}
+    for side in order:
+        size = sizes.get(side)
+        if size is None:
+            continue
+        if counts.get(side, 0) > 0 and size not in first_side_for_size:
+            first_side_for_size[size] = side_index.get(side, len(order))
+
+    # 3) Tri des couples (taille, quantité) :
+    #    d'abord par index de côté prioritaire, puis par taille décroissante.
+    def sort_key(item):
+        size, _ = item
+        return (first_side_for_size.get(size, len(order)), -size)
+
+    parts = [
+        f"{n}x{sz}"
+        for sz, n in sorted(agg.items(), key=sort_key)
+    ]
     return " / ".join(parts) + f" - total {total}"
+
+# -------------------------------------------------------------------------
+# Comptage pondéré des dossiers
+# -------------------------------------------------------------------------
+
+def _compute_dossiers_count(polys):
+    """
+    Calcule un nombre pondéré de dossiers en fonction de leur longueur.
+    Chaque dossier de longueur > 110 cm compte pour 1, et chaque dossier
+    de longueur <= 110 cm compte pour 0,5.
+
+    Parameters:
+        polys (dict): dictionnaire contenant notamment la clé 'dossiers'
+                      avec une liste de polygones représentant les dossiers.
+    Returns:
+        float: le nombre total pondéré de dossiers.
+    """
+    total = 0.0
+    for p in polys.get("dossiers", []):
+        # p est une liste de coordonnées (x,y)
+        xs = [pt[0] for pt in p]
+        ys = [pt[1] for pt in p]
+        length = max(max(xs) - min(xs), max(ys) - min(ys))
+        if length <= 110:
+            total += 0.5
+        else:
+            total += 1.0
+    return total
 
 
 # -*- coding: utf-8 -*-
@@ -322,11 +387,12 @@ def _clamp_to_segment(x0, length, seg_min, seg_max, align="start"):
     return X0, X1
 
 # --- Polices / légende / titres (lisibilité accrue) ---
-FONT_LABEL      = ("Arial", 12, "bold")   # libellés banquettes/dossiers/accoudoirs
-FONT_CUSHION    = ("Arial", 11, "bold")   # tailles des coussins + "70x30"
-FONT_DIM        = ("Arial", 12, "bold")   # flèches d’encombrement
-FONT_LEGEND     = ("Arial", 12, "normal") # texte de légende
-FONT_TITLE      = ("Arial", 14, "bold")   # titre "Canapé en U …"
+# Réduction légère des tailles de police pour une meilleure lisibilité
+FONT_LABEL      = ("Arial", 10, "bold")   # libellés banquettes/dossiers/accoudoirs
+FONT_CUSHION    = ("Arial", 9,  "bold")   # tailles des coussins + "70x30"
+FONT_DIM        = ("Arial", 10, "bold")   # flèches d’encombrement
+FONT_LEGEND     = ("Arial", 10, "normal") # texte de légende
+FONT_TITLE      = ("Arial", 12, "bold")   # titre "Canapé en U …"
 LEGEND_BOX_PX   = 14
 LEGEND_GAP_PX   = 6
 TITLE_MARGIN_PX = 28  # marge sous le bord haut du dessin
@@ -1854,16 +1920,28 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
     draw_double_arrow_vertical_cm(t,tr,-25,0,ty,f"{ty} cm")
     draw_double_arrow_horizontal_cm(t,tr,-25,0,tx,f"{tx} cm")
 
-    banquette_sizes=[]
+    banquette_sizes = []
     if polys["angle"]:
-        side=int(round(pts["Fy"][1]-pts["F0"][1])); label_poly(t,tr,polys["angle"][0],f"{side}×{side} cm")
+        side = int(round(pts["Fy"][1] - pts["F0"][1]))
+        # Écrire les dimensions d'angle sur deux lignes et centrer dans le carré d'angle
+        # Pour l'angle, on affiche la première dimension sans unité suivie d'un « x » et la seconde avec « cm »
+        label_poly(t, tr, polys["angle"][0], f"{side}x\n{side} cm")
+    # Afficher les dimensions des banquettes en les décalant légèrement lorsqu'elles sont verticales
     for poly in polys["banquettes"]:
-        L,P=banquette_dims(poly); text=f"{L}×{P} cm"; banquette_sizes.append((L,P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]; bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        if bb_h>=bb_w:
-            label_poly_offset_cm(t,tr,poly,text,dx_cm=(CUSHION_DEPTH+10),dy_cm=0.0)
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Afficher la première dimension sans unité suivie d'un « x », la seconde avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Si la banquette est plus haute que large, décaler le texte vers la droite pour l'éloigner des coussins
+        # Réduction de 3 cm : offset moindre pour un positionnement plus proche des coussins
+        if bb_h >= bb_w:
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
-            label_poly(t,tr,poly,text)
+            label_poly(t, tr, poly, text)
     for poly in polys["dossiers"]: label_poly(t,tr,poly,"10")
     for poly in polys["accoudoirs"]: label_poly(t,tr,poly,"15")
 
@@ -1881,7 +1959,12 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
             raise ValueError("Aucune configuration valise valide pour LF.")
         sizes = best["sizes"]; shift = best["shift_bas"]
         n, sb, sg = _draw_L_like_with_sizes(t, tr, pts, sizes, shift, x_end_key="Bx", y_end_key="By", traversins=trv)
-        cushions_count = n; total_line = _format_valise_counts_console({"bas": sb, "gauche": sg}, best["counts"], cushions_count)
+        cushions_count = n
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
 
     # Légende (couleurs)
     draw_legend(t, tr, tx, ty, items=legend_items, pos="top-right")
@@ -1892,7 +1975,10 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
     print("=== Rapport canapé (LF) ===")
     print(f"Dimensions : {tx}×{ty} cm — profondeur : {profondeur} cm")
     print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
-    print(f"Dossiers : {len(polys['dossiers'])} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
     print(f"Banquettes d’angle : 1")
     print(f"Angles : 1 × {A}×{A} cm")
     print(f"Traversins : {n_traversins} × 70x30")
@@ -2170,17 +2256,25 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
 
     A = profondeur + 20
     for poly in polys["angles"]:
-        label_poly(t, tr, poly, f"{A}×{A} cm")
+        # Écrire les dimensions d’angle sur deux lignes, première ligne sans unité suivie d’un « x »
+        label_poly(t, tr, poly, f"{A}x\n{A} cm")
 
-    banquette_sizes=[]
+    banquette_sizes = []
     for poly in polys["banquettes"]:
-        L, P = banquette_dims(poly); banquette_sizes.append((L, P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
-        bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        cx = sum(xs)/len(xs)
-        text=f"{L}×{P} cm"
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Affichage de la dimension principale sans unité suivie d'un « x », et de la profondeur avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Décaler horizontalement si la banquette est plus haute que large
         if bb_h >= bb_w:
-            dx = (CUSHION_DEPTH+10) if cx < tx/2 else -(CUSHION_DEPTH+10)
+            cx = sum(xs) / len(xs)
+            # Réduire les offsets : 3 cm en moins sur les branches verticales
+            # Branche gauche : CUSHION_DEPTH+7 (ex: 22 cm). Branche droite : -(CUSHION_DEPTH-8) (ex: -7 cm).
+            dx = (CUSHION_DEPTH + 7) if cx < tx / 2.0 else -(CUSHION_DEPTH - 8)
             label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
@@ -2220,7 +2314,11 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
         sizes = best["sizes"]; shiftL = best["shiftL"]; shiftR = best["shiftR"]
         cushions_count = _draw_U2f_with_sizes(t, tr, pts, sizes, shiftL, shiftR, traversins=trv)
         sb, sg, sd = sizes["bas"], sizes["gauche"], sizes["droite"]
-        total_line = _format_valise_counts_console({"bas": sb, "gauche": sg, "droite": sd}, best["counts"], cushions_count)
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
 
     # Titre demandé + légende (U → légende en haut-centre)
     draw_title_center(t, tr, tx, ty_canvas, "Canapé en U avec deux angles")
@@ -2235,7 +2333,10 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
     dossier_bonus = int(polys["split_flags"].get("left", False) and dossier_left) + \
                    int(polys["split_flags"].get("bottom", False) and dossier_bas) + \
                    int(polys["split_flags"].get("right", False) and dossier_right)
-    print(f"Dossiers : {len(polys['dossiers'])} (+{dossier_bonus} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers : {dossiers_str} (+{dossier_bonus} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
     print(f"Banquettes d'angle : 2")
     print(f"Angles : 2 × {A}×{A} cm")
     print(f"Traversins : {n_traversins} × 70x30")
@@ -2993,15 +3094,28 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
 
     A = pts["_A"]
     if polys["angle"]:
-        label_poly(t, tr, polys["angle"][0], f"{A}×{A} cm")
-    banquette_sizes=[]
+        # Dimensions d’angle sur deux lignes : première ligne sans unité suivie d'un « x », deuxième ligne avec « cm »
+        label_poly(t, tr, polys["angle"][0], f"{A}x\n{A} cm")
+    banquette_sizes = []
     for poly in polys["banquettes"]:
-        L,P = banquette_dims(poly); banquette_sizes.append((L,P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
-        bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        text=f"{L}×{P} cm"
-        if bb_h >= bb_w: label_poly_offset_cm(t,tr,poly,text,dx_cm=CUSHION_DEPTH+10,dy_cm=0)
-        else:            label_poly(t,tr,poly,text)
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Afficher la longueur sans unité suivie d'un « x », et la profondeur avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [pp[0] for pp in poly]
+        ys = [pp[1] for pp in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Décaler horizontalement si la banquette est plus haute que large
+        if bb_h >= bb_w:
+            # Centre X de la banquette
+            cx = sum(xs) / len(xs)
+            # Réduire les offsets : 3 cm en moins sur les branches verticales
+            # Branche gauche : CUSHION_DEPTH+7 (22 cm). Branche droite : -(CUSHION_DEPTH-8) (-7 cm).
+            dx = (CUSHION_DEPTH + 7) if cx < tx / 2.0 else -(CUSHION_DEPTH - 8)
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
+        else:
+            label_poly(t, tr, poly, text)
     for p in polys["dossiers"]:
         xs=[pp[0] for pp in p]; ys=[pp[1] for pp in p]
         if (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9):
@@ -3028,7 +3142,11 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
         sizes = best["sizes"]; shiftL, shiftR = best["shifts"]
         nb_coussins = _draw_U1F_with_sizes(t, tr, pts, sizes, shiftL, shiftR, traversins=trv)
         sb, sg, sd = sizes["bas"], sizes["gauche"], sizes["droite"]
-        total_line = _format_valise_counts_console({"bas": sb, "gauche": sg, "droite": sd}, best["counts"], nb_coussins)
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            nb_coussins,
+        )
 
     # Titre + légende (U → haut-centre)
     draw_title_center(t, tr, tx, ty_canvas, "Canapé en U avec un angle")
@@ -3040,7 +3158,10 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
     print(f"=== Rapport U1F {variant} ===")
     print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — profondeur={profondeur} (A={A})")
     print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
-    print(f"Dossiers : {len(polys['dossiers'])} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
     print(f"Banquettes d’angle : 1")
     print(f"Angles : 1 × {A}×{A} cm")
     print(f"Traversins : {n_traversins} × 70x30")
@@ -3550,13 +3671,23 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
     draw_double_arrow_vertical_cm(t,tr,-25,0,ty,f"{ty} cm")
     draw_double_arrow_horizontal_cm(t,tr,-25,0,tx,f"{tx} cm")
 
-    banquette_sizes=[]
+    # Banquettes : afficher les dimensions sur deux lignes. Décaler légèrement lorsque la banquette est verticale.
+    banquette_sizes = []
     for poly in polys["banquettes"]:
-        L,P = banquette_dims(poly); banquette_sizes.append((L,P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
-        bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        if bb_h>=bb_w: label_poly_offset_cm(t,tr,poly,f"{L}×{P} cm",dx_cm=CUSHION_DEPTH+10,dy_cm=0)
-        else:          label_poly(t,tr,poly,f"{L}×{P} cm")
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Afficher la longueur sans unité suivie d'un « x » puis la profondeur avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Décaler horizontalement pour éloigner le texte des coussins lorsque la banquette est plus haute que large
+        # Réduction de 3 cm : offset plus faible
+        if bb_h >= bb_w:
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
+        else:
+            label_poly(t, tr, poly, text)
 
     for p in polys["dossiers"]:   label_poly(t,tr,p,"10")
     for p in polys["accoudoirs"]: label_poly(t,tr,p,"15")
@@ -3575,7 +3706,12 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
             raise ValueError("Aucune configuration valise valide pour L.")
         sizes = best["sizes"]; shift = best["shift_bas"]
         n, sb, sg = _draw_L_like_with_sizes(t, tr, pts, sizes, shift, traversins=trv)
-        cushions_count = n; total_line = _format_valise_counts_console({"bas": sb, "gauche": sg}, best["counts"], cushions_count)
+        cushions_count = n
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
 
     # Légende
     draw_legend(t, tr, tx, ty, items=legend_items, pos="top-right")
@@ -3588,11 +3724,10 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
     print("=== Rapport LNF ===")
     print(f"Dimensions : {tx}×{ty} — prof={profondeur} — méridienne {meridienne_side or '-'}={meridienne_len}")
     print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
-    # Comptage des dossiers : ajuste pour le cas où le bas comporte un "retour" sans dossier gauche
-    dossiers_count = len(polys['dossiers'])
-    if dossier_bas and (dossier_left is None) and (meridienne_side not in ('b','B','bas','bottom')):
-        dossiers_count -= 0.5
-    print(f"Dossiers : {dossiers_count} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
     print(f"Banquettes d’angle : 0")
     print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
@@ -4961,25 +5096,27 @@ def _render_common_U(
         t, tr, -25, 0, tx, f"{tx} cm"
     )
 
-    # Label seats
+    # Label seats : afficher les dimensions sur deux lignes. Décaler légèrement selon l'orientation et la position.
     banquette_sizes = []
     for poly in polys["banquettes"]:
         L, P = banquette_dims(poly)
         banquette_sizes.append((L, P))
+        # Première dimension sans unité suivie d'un « x », seconde avec « cm »
+        text = f"{L}x\n{P} cm"
         xs = [p[0] for p in poly]
         ys = [p[1] for p in poly]
         bb_w = max(xs) - min(xs)
         bb_h = max(ys) - min(ys)
-        text = f"{L}×{P} cm"
+        # Si la banquette est plus haute que large, décaler horizontalement en fonction de sa position
         if bb_h >= bb_w:
             cx = sum(xs) / len(xs)
-            dx = (CUSHION_DEPTH + 10) if cx < tx / 2 else -(
-                CUSHION_DEPTH + 10
-            )
-            label_poly_offset_cm(
-                t, tr, poly, text, dx_cm=dx, dy_cm=0.0
-            )
+            # Séparer par rapport à la moitié de la largeur totale (tx) pour savoir à quel côté se trouve la banquette
+            # Réduction d'environ 3 cm par rapport aux offsets précédents :
+            # Branche gauche (cx < tx/2) : CUSHION_DEPTH+7 ; branche droite : -(CUSHION_DEPTH-8)
+            dx = (CUSHION_DEPTH + 7) if cx < tx / 2.0 else -(CUSHION_DEPTH - 8)
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
         else:
+            # Si la banquette est plus large que haute, centrer simplement
             label_poly(t, tr, poly, text)
 
     # Label backs and armrests
@@ -5038,7 +5175,11 @@ def _render_common_U(
             sizes["gauche"],
             sizes["droite"],
         )
-        total_line = _format_valise_counts_console({"bas": sb, "gauche": sg, "droite": sd}, best["counts"], cushions_count)
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
 
     # Title and legend
     draw_title_center(
@@ -5074,8 +5215,11 @@ def _render_common_U(
     print(
         f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}"
     )
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
     print(
-        f"Dossiers : {len(polys['dossiers'])} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}"
+        f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}"
     )
     print("Banquettes d’angle : 0")
     print(f"Traversins : {n_traversins} × 70x30")
@@ -5744,14 +5888,20 @@ def render_Simple1(tx,
     # Largeur identique
     draw_double_arrow_horizontal_cm(t, tr, -25, 0, tx, f"{tx} cm")
 
-    banquette_sizes=[]
+    banquette_sizes = []
     for poly in polys["banquettes"]:
-        L, P = banquette_dims(poly); banquette_sizes.append((L, P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
-        bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        text=f"{L}×{P} cm"
-        if bb_h>=bb_w:
-            label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH+10, dy_cm=0.0)
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Première dimension sans unité avec un « x », seconde dimension avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Décaler horizontalement si la banquette est plus haute que large, pour éloigner légèrement le texte des coussins
+        # Offset réduit : 3 cm de moins que la version précédente
+        if bb_h >= bb_w:
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
     for p in polys["dossiers"]:
@@ -5790,10 +5940,510 @@ def render_Simple1(tx,
     print("=== Rapport Canapé simple 1 ===")
     print(f"Dimensions : {tx}×{profondeur} cm")
     print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
-    print(f"Dossiers   : {len(polys['dossiers'])} (+{add_split} via scission)  |  Accoudoirs : {len(polys['accoudoirs'])}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers   : {dossiers_str} (+{add_split} via scission)  |  Accoudoirs : {len(polys['accoudoirs'])}")
     print(f"Banquettes d’angle : 0")
     print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins   : {total_line}")
     if meridienne_side:
         print(f"Méridienne : côté {'gauche' if meridienne_side=='g' else 'droit'} — {meridienne_len} cm")
     turtle.done()
+
+# =====================================================================
+# =====================  TESTS ÉTENDUS (30)  ==========================
+# =====================================================================
+
+
+
+
+def TEST_22_LNF_v1_mer_bas_split_TRb_gs():
+    render_LNF(
+        tx=250, ty=260, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="p", variant="v2",
+        traversins="None",
+        window_title="T22 — LNF v1 | méridienne bas | split bas | g:s | TR bas"
+    )
+
+
+def TEST_23_LNF_v1_grand_scission_valise_TRgb_palette():
+    render_LNF(
+        tx=540, ty=360, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="valise", variant="v1",
+        traversins="g,b",
+        couleurs="accoudoirs:gris foncé; assise:gris très clair presque blanc; coussins:#8B7E74",
+        window_title="T23 — LNF v1 | grandes longueurs | valise | TR G+B | palette"
+    )
+
+
+def TEST_24_LNF_v2_mer_gauche_split_TRg_ps():
+    render_LNF(
+        tx=280, ty=360, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=False, acc_bas=True,               # méridienne gauche -> pas d'accoudoir gauche (déjà OFF)
+        meridienne_side='g', meridienne_len=90,
+        coussins="p:s", variant="v2",
+        traversins="g",
+        window_title="T24 — LNF v2 | méridienne G 90 | split gauche | p:s | TR G"
+    )
+
+
+def TEST_25_LNF_v2_mer_bas_split_TRb_auto():
+    render_LNF(
+        tx=520, ty=280, profondeur=80,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=False,               # méridienne bas -> pas d'accoudoir bas
+        meridienne_side='b', meridienne_len=140,
+        coussins="auto", variant="v2",
+        traversins="b",
+        window_title="T25 — LNF v2 | méridienne bas 140 | split bas | auto | TR bas"
+    )
+
+
+def TEST_26_LF_mer_bas_TRgb_palette_dict():
+    render_LF_variant(
+        tx=420, ty=440, profondeur=80,
+        dossier_left=False, dossier_bas=True,
+        acc_left=True, acc_bas=False,               # méridienne bas -> pas d'accoudoir bas
+        meridienne_side='b', meridienne_len=50,
+        coussins="90", traversins="",
+        couleurs={"accoudoirs": "anthracite", "assise": "crème", "coussins": "#c0ffee"},
+        window_title="T26 — LF | méridienne bas 100 | TR G+B | palette dict"
+    )
+
+
+def TEST_27_LF_valise_sans_mer_TRg_split():
+    render_LF_variant(
+        tx=500, ty=500, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="valise", traversins="g",
+        window_title="T27 — LF | valise | sans méridienne | TR G | grandes longueurs"
+    )
+
+
+def TEST_28_S1_TR_both_auto_palette():
+    render_Simple1(
+        tx=260, profondeur=70, dossier=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", traversins="g,d",
+        couleurs="accoudoirs:#444444; assise:#f0f0f0; coussins:#b38b6d",
+        window_title="T28 — S1 | dossier | TR G+D | auto | palette"
+    )
+
+
+def TEST_29_S1_mer_droite_120_no_accR_90_TRg():
+    render_Simple1(
+        tx=320, profondeur=70, dossier=True,
+        acc_left=True, acc_right=False,             # méridienne droite -> pas d'accoudoir droit
+        meridienne_side='d', meridienne_len=120,
+        coussins="90", traversins="g",
+        couleurs=None,
+        window_title="T29 — S1 | méridienne D 120 | accR OFF | 90 | TR G"
+    )
+
+
+def TEST_30_U_v1_left_TRg_auto_no_dossier_droit():
+    render_U(
+        tx=240, ty_left=260, tz_right=260, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=False, acc_bas=True, acc_right=False,
+        coussins="p", variant="v4", traversins=None,
+        meridienne_side='d', meridienne_len=20,
+        window_title="T30 — U v1 | pas de dossier droit | TR G | auto"
+    )
+
+
+def TEST_31_U_v1_TR_both_80_palette():
+    render_U(
+        tx=420, ty_left=400, tz_right=420, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="auto", variant="v4", traversins="",
+        couleurs="accoudoirs:#333333; assise:#f5f5f5; coussins:#a67c52",
+        window_title="T31 — U v1 | TR G+D | 80 | palette"
+    )
+
+
+def TEST_32_U_auto_valise_g():
+    render_U(
+        tx=520, ty_left=420, tz_right=420, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="valise", variant="auto", traversins="g",
+        couleurs=None,
+        window_title="T32 — U auto | valise g"
+    )
+
+
+def TEST_33_U_v3_valise_p_sans_TR():
+    render_U(
+        tx=460, ty_left=380, tz_right=360, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="p", variant="v3", traversins=None,
+        couleurs=None,
+        window_title="T33 — U v3 | valise p | sans TR"
+    )
+
+
+def TEST_34_U_v4_TR_both_75_palette_hex():
+    render_U(
+        tx=300, ty_left=400, tz_right=480, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="75", variant="v4", traversins="g,d",
+        couleurs="accoudoirs:#4b4b4b; assise:#f6f6f6; coussins:#8B7E74",
+        window_title="T34 — U v4 | TR G+D | 75 | palette hex"
+    )
+
+
+def TEST_35_U2F_mer_g_120_no_accL_s_TRd():
+    render_U2f_variant(
+        tx=520, ty_left=450, tz_right=450, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=False, acc_bas=True, acc_right=True,   # méridienne gauche -> pas d'accoudoir gauche
+        meridienne_side='g', meridienne_len=120,
+        coussins="s", traversins="d",
+        window_title="T35 — U2F | méridienne G 120 | accL OFF | s | TR D"
+    )
+
+
+def TEST_36_U2F_mer_d_100_no_accR_80_TRg():
+    render_U2f_variant(
+        tx=520, ty_left=420, tz_right=330, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=False,   # méridienne droite -> pas d'accoudoir droit
+        meridienne_side='d', meridienne_len=100,
+        coussins="g", traversins="g",
+        window_title="T36 — U2F | méridienne D 100 | accR OFF | 80 | TR G"
+    )
+
+
+def TEST_37_U2F_valise_same_TR_both():
+    render_U2f_variant(
+        tx=560, ty_left=540, tz_right=520, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=False, acc_bas=True, acc_right=True,
+        meridienne_side='g', meridienne_len=50,
+        coussins="g:s", traversins="g,d",
+        window_title="T37 — U2F | valise g:s | TR G+D"
+    )
+
+
+def TEST_38_U1F_v1_mer_g_90_no_accL_p_TRd():
+    render_U1F(
+        tx=400, ty_left=280, tz_right=300, profondeur=70,
+        dossier_left=False, dossier_bas=False, dossier_right=True,
+        acc_left=False, acc_right=True,                  # méridienne gauche -> pas d'accoudoir gauche
+        meridienne_side='g', meridienne_len=90,
+        coussins="p", variant="v1",
+        traversins="d",
+        window_title="T38 — U1F v1 | méridienne G 90 | accL OFF | p | TR D"
+    )
+
+
+def TEST_39_U1F_v2_mer_d_110_no_accR_65_TRg():
+    render_U1F(
+        tx=520, ty_left=400, tz_right=420, profondeur=80,
+        dossier_left=False, dossier_bas=False, dossier_right=True,
+        acc_left=True, acc_right=False,                 # méridienne droite -> pas d'accoudoir droit
+        meridienne_side='d', meridienne_len=110,
+        coussins="65", variant="v2",
+        traversins="g",
+        window_title="T39 — U1F v2 | méridienne D 110 | accR OFF | 65 | TR G"
+    )
+
+
+def TEST_40_U1F_v3_TR_both_valise_g_palette():
+    render_U1F(
+        tx=380, ty_left=320, tz_right=300, profondeur=70,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="g", variant="v3",
+        traversins="g,d",
+        couleurs={"accoudoirs": "gris", "assise": "crème", "coussins": "taupe"},
+        window_title="T40 — U1F v3 | TR G+D | valise g | palette dict"
+    )
+
+
+def TEST_41_U1F_v4_valise_TRg():
+    render_U1F(
+        tx=400, ty_left=280, tz_right=320, profondeur=70,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="valise", variant="v4",
+        traversins="g",
+        window_title="T41 — U1F v4 | valise | TR G"
+    )
+
+
+def TEST_42_U1F_v4_auto_sans_TR():
+    render_U1F(
+        tx=460, ty_left=400, tz_right=480, profondeur=70,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", variant="v4",
+        traversins=None,
+        window_title="T42 — U1F v4 | auto | pas de TR"
+    )
+
+
+def TEST_43_U1F_v2_grand_split_TRg_palette():
+    render_U1F(
+        tx=520, ty_left=450, tz_right=430, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="p:s", variant="v2",
+        traversins="g",
+        couleurs="accoudoirs:anthracite; assise:gris très clair; coussins:#e0d9c7",
+        window_title="T43 — U1F v2 | grandes longueurs (scissions) | p:s | TR G | palette"
+    )
+
+
+def TEST_44_U1F_v3_split_droite_TRd_ps():
+    render_U1F(
+        tx=460, ty_left=300, tz_right=360, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="p:s", variant="v3",
+        traversins="d",
+        window_title="T44 — U1F v3 | split droite | p:s | TR D"
+    )
+
+
+def TEST_45_U1F_v4_TR_both_90_palette_dict():
+    render_U1F(
+        tx=420, ty_left=300, tz_right=300, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="90", variant="v4",
+        traversins="g,d",
+        couleurs={"accoudoirs": "gris", "assise": "blanc", "coussins": "#8B7E74"},
+        window_title="T45 — U1F v4 | TR G+D | 90 | palette dict"
+    )
+
+
+def TEST_46_LNF_v1_palette_lighten_dossiers_auto():
+    render_LNF(
+        tx=300, ty=280, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="80", variant="v1",
+        traversins=None,
+        couleurs={"accoudoirs": "anthracite fonce", "assise": "gris très clair", "coussins": "#b5651d"},
+        window_title="T46 — LNF v1 | palette lighten dossiers auto"
+    )
+
+
+def TEST_47_LNF_v2_palette_string_accents_TRb():
+    render_LNF(
+        tx=320, ty=300, profondeur=80,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", variant="v2",
+        traversins="b",
+        couleurs="accoudoirs:gris; dossiers:gris clair; assise:crème; coussins:taupe",
+        window_title="T47 — LNF v2 | palette string (accents) | TR bas"
+    )
+
+
+def TEST_48_S1_sans_dossier_TR_both_auto():
+    render_Simple1(
+        tx=300, profondeur=70, dossier=False,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", traversins="g,d",
+        couleurs=None,
+        window_title="T48 — S1 | sans dossier | TR G+D | auto"
+    )
+
+
+def TEST_49_LF_valise_same_TRg():
+    render_LF_variant(
+        tx=460, ty=460, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="valise", traversins="g",
+        couleurs=None,
+        window_title="T49 — LF | valise | TR G | mêmes longueurs"
+    )
+
+
+def TEST_50_U_v2_valise_same_TRg_palette():
+    render_U(
+        tx=460, ty_left=460, tz_right=460, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="valise", variant="v2", traversins="g",
+        couleurs="accoudoirs:#444444; assise:#f0f0f0; coussins:#b38b6d",
+        window_title="T50 — U v2 | valise | TR G | mêmes longueurs | palette"
+    )
+
+
+def TEST_51_LNF_auto_dossier_bas_seul_TRb():
+    # LNF : uniquement dossier bas, choix de variante automatique
+    render_LNF(
+        tx=280, ty=220, profondeur=70,
+        dossier_left=False, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", variant="auto",
+        traversins="b",
+        couleurs="accoudoirs:gris; assise:gris très clair; coussins:taupe",
+        window_title="T51 — LNF auto | dossier bas seul | TR bas"
+    )
+
+
+def TEST_52_LNF_auto_dossier_gauche_seul_TRg_palette_dict():
+    # LNF : uniquement dossier gauche, test de variant=auto + palette dictionnaire
+    render_LNF(
+        tx=240, ty=360, profondeur=70,
+        dossier_left=False, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="65", variant="auto",
+        traversins=None,
+        couleurs={"accoudoirs": "anthracite",
+                  "assise": "gris très clair",
+                  "coussins": "#c8ad7f"},
+        window_title="T52 — LNF auto | dossier gauche seul | TR G | palette dict"
+    )
+
+
+def TEST_53_U1F_auto_TR_both_auto_palette():
+    # U1F : 3 dossiers, TR gauche + droite, choix auto de la variante
+    render_U1F(
+        tx=520, ty_left=360, tz_right=380, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", variant="auto",
+        traversins="g,d",
+        couleurs="accoudoirs:gris foncé; assise:gris très clair; coussins:taupe",
+        window_title="T53 — U1F auto | TR G+D | palette"
+    )
+
+
+def TEST_54_U1F_v3_dossiers_gauche_et_bas_TRg():
+    # U1F : variante v3 forcée, dossiers gauche + bas uniquement
+    render_U1F(
+        tx=420, ty_left=320, tz_right=280, profondeur=75,
+        dossier_left=True, dossier_bas=True, dossier_right=False,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="p", variant="v3",
+        traversins="g",
+        window_title="T54 — U1F v3 | dossiers G+bas | TR G"
+    )
+
+
+def TEST_55_U1F_v4_dossier_droit_seul_TRd_palette():
+    # U1F : variante v4 forcée, uniquement dossier droit (cas limite pour D5 / couture Dx2–Bx)
+    render_U1F(
+        tx=450, ty_left=280, tz_right=340, profondeur=70,
+        dossier_left=False, dossier_bas=False, dossier_right=True,
+        acc_left=False, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="s", variant="v4",
+        traversins="d",
+        couleurs="accoudoirs:gris; assise:blanc cassé; coussins:#b5651d",
+        window_title="T55 — U1F v4 | dossier droit seul | TR D | palette"
+    )
+
+def TEST_56_U_v1_mer_g_120_no_accL_TRg():
+    """
+    U v1 avec méridienne gauche 120 cm :
+    - dossier gauche et bas présents
+    - pas d'accoudoir gauche (acc_left=False obligatoire)
+    - méridienne sur branche gauche (meridienne_side='g')
+    - traversin à gauche
+    """
+    render_U(
+        tx=520, ty_left=450, tz_right=420, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=False, acc_bas=True, acc_right=True,
+        meridienne_side="g", meridienne_len=120,
+        coussins="auto", variant="v1",
+        traversins="g",
+        couleurs="accoudoirs:anthracite; assise:gris très clair; coussins:taupe",
+        window_title="T56 — U v1 | méridienne G 120 | accL OFF | TR G"
+    )
+
+
+def TEST_57_U_v2_mer_d_100_no_accR_TRd():
+    """
+    U v2 avec méridienne droite 100 cm :
+    - dossier droit et bas présents
+    - pas d'accoudoir droit (acc_right=False obligatoire)
+    - méridienne sur branche droite (meridienne_side='d')
+    - traversin à droite
+    """
+    render_U(
+        tx=580, ty_left=430, tz_right=460, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=False,
+        meridienne_side="d", meridienne_len=100,
+        coussins="80", variant="v2",
+        traversins="d",
+        couleurs="accoudoirs:#444444; assise:#f0f0f0; coussins:#b38b6d",
+        window_title="T57 — U v2 | méridienne D 100 | accR OFF | TR D"
+    )
+
+if __name__ == "__main__":
+    #TEST_21_LNF_v1_mer_gauche_split_TRg_p()
+    #TEST_22_LNF_v1_mer_bas_split_TRb_gs()
+    #TEST_23_LNF_v1_grand_scission_valise_TRgb_palette()
+    #TEST_24_LNF_v2_mer_gauche_split_TRg_ps()
+    #TEST_25_LNF_v2_mer_bas_split_TRb_auto()
+    #TEST_26_LF_mer_bas_TRgb_palette_dict()
+    #TEST_27_LF_valise_sans_mer_TRg_split()
+    #TEST_28_S1_TR_both_auto_palette()
+    #TEST_29_S1_mer_droite_120_no_accR_90_TRg()
+    #TEST_30_U_v1_left_TRg_auto_no_dossier_droit()
+    #TEST_31_U_v1_TR_both_80_palette()
+    #TEST_32_U_auto_valise_g()
+    #TEST_33_U_v3_valise_p_sans_TR()
+    #TEST_34_U_v4_TR_both_75_palette_hex()
+    #TEST_35_U2F_mer_g_120_no_accL_s_TRd()
+    TEST_36_U2F_mer_d_100_no_accR_80_TRg()
+    #TEST_37_U2F_valise_same_TR_both()
+    #TEST_38_U1F_v1_mer_g_90_no_accL_p_TRd()
+    #TEST_39_U1F_v2_mer_d_110_no_accR_65_TRg()
+    #TEST_40_U1F_v3_TR_both_valise_g_palette()
+    #TEST_41_U1F_v4_valise_TRg()
+    #TEST_42_U1F_v4_auto_sans_TR()
+    #TEST_43_U1F_v2_grand_split_TRg_palette()
+    #TEST_44_U1F_v3_split_droite_TRd_ps()
+    #TEST_45_U1F_v4_TR_both_90_palette_dict()
+    #TEST_46_LNF_v1_palette_lighten_dossiers_auto()
+    #TEST_47_LNF_v2_palette_string_accents_TRb()
+    #TEST_48_S1_sans_dossier_TR_both_auto()
+    #TEST_49_LF_valise_same_TRg()
+    #TEST_50_U_v2_valise_same_TRg_palette()
+    #TEST_51_LNF_auto_dossier_bas_seul_TRb()
+    #TEST_52_LNF_auto_dossier_gauche_seul_TRg_palette_dict()
+    #TEST_53_U1F_auto_TR_both_auto_palette()
+    #TEST_54_U1F_v3_dossiers_gauche_et_bas_TRg()
+    #TEST_55_U1F_v4_dossier_droit_seul_TRd_palette()
+    #TEST_56_U_v1_mer_g_120_no_accL_TRg()
+    #TEST_57_U_v2_mer_d_100_no_accR_TRd()
+    pass
