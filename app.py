@@ -12,8 +12,8 @@ from PIL import Image
 from pricing import calculer_prix_total
 from pdf_generator import generer_pdf_devis
 
-# Import des fonctions de génération de schémas depuis canapematplot
-from canapematplot import (
+# Import des fonctions de génération de schémas depuis canapefullv77matplot
+from canapefullv77matplot import (
     render_LNF, render_LF_variant, render_U2f_variant,
     render_U, render_U1F_v1, render_U1F_v2, render_U1F_v3, render_U1F_v4,
     render_Simple1
@@ -284,20 +284,33 @@ with col2:
                 # Affichage des prix
                 st.markdown("### 📊 Détails du Devis")
                 
-                col_prix1, col_prix2 = st.columns(2)
-                
-                with col_prix1:
-                    st.markdown("**Composants :**")
-                    for item, prix in prix_details['details'].items():
-                        st.write(f"• {item}: {prix}€")
-                
-                with col_prix2:
-                    st.markdown("**Récapitulatif :**")
-                    st.metric("Sous-total", f"{prix_details['sous_total']}€")
-                    st.metric("TVA (20%)", f"{prix_details['tva']}€")
+                # Affichage des composants
+                st.markdown("**🔧 Composants :**")
+                for item, prix in prix_details['details'].items():
+                    st.write(f"• {item}: {prix}€")
                 
                 st.markdown("---")
-                st.markdown(f"### 💰 **TOTAL TTC : {prix_details['total_ttc']}€**")
+                
+                # Affichage en 3 colonnes pour les métriques
+                col_prix1, col_prix2, col_prix3 = st.columns(3)
+                
+                with col_prix1:
+                    st.metric("💶 Prix HT", f"{prix_details['prix_ht']}€")
+                    st.metric("🏭 Coût de revient HT", f"{prix_details['cout_revient_ht']}€")
+                
+                with col_prix2:
+                    st.metric("📈 Marge HT", f"{prix_details['marge_ht']}€")
+                    st.metric("📊 Taux de marge", f"{prix_details['taux_marge']}%")
+                
+                with col_prix3:
+                    st.metric("💵 TVA (20%)", f"{prix_details['tva']}€")
+                    st.metric("💰 TOTAL TTC", f"{prix_details['total_ttc']}€", 
+                             delta=None, delta_color="off")
+                
+                st.markdown("---")
+                st.markdown(f"### 🎯 **PRIX PUBLIC : {prix_details['total_ttc']}€ TTC**")
+                st.markdown(f"##### ✅ Marge bénéficiaire : **{prix_details['marge_ht']}€** ({prix_details['taux_marge']}%)")
+
                 
             except Exception as e:
                 st.error(f"❌ Erreur lors de la génération : {str(e)}")
@@ -387,7 +400,6 @@ st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray;'>
     <p>🛋️ Générateur de Devis Canapés Sur Mesure v2.0</p>
-    <p>Utilise canapematplot.py pour la génération de schémas</p>
+    <p>Utilise canapefullv77matplot.py pour la génération de schémas</p>
 </div>
 """, unsafe_allow_html=True)
-
