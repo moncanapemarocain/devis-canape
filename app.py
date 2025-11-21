@@ -110,7 +110,7 @@ st.markdown("""
 
     
     .stButton button[kind="primary"]:hover {
-        background-color: #B55718 !important;
+        background-color: #D5CFC6 !important;
     }
     
     /* Conteneurs */
