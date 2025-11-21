@@ -28,7 +28,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None):
         textColor=colors.black,
         spaceAfter=20,
         alignment=TA_CENTER,
-        fontName='Helvetica-Bold'
+        fontName='Helvetica'
     )
     
     # MODIFICATION 1 : Ajout de alignment=TA_CENTER pour centrer Dimensions, Caractéristiques, Client
@@ -201,7 +201,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None):
     table_style = [
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 10),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ('TOPPADDING', (0, 0), (-1, -1), 8),
