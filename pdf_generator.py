@@ -164,8 +164,6 @@ def generer_pdf_devis(config, prix_details, schema_image=None):
     client = config['client']
     if client['nom']: lignes_info.append(f"<b>Nom:</b> {client['nom']}")
     if client.get('telephone'): lignes_info.append(f"<b>Téléphone:</b> {client['telephone']}")
-    if client['email']: lignes_info.append(f"<b>Email:</b> {client['email']}")
-    if client.get('departement'): lignes_info.append(f"<b>Département:</b> {client['departement']}")
     
     elements.append(Paragraph("<br/>".join(lignes_info), header_info_style))
     
