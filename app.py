@@ -114,7 +114,7 @@ st.markdown("""
     }
     
 
-    .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fk.st-fl.st-ct.st-fm.st-fn, .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-cc.st-cd.st-ct.st-fm.st-fn, st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fo.st-fp.st-ct.st-fm.st-fn, .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fq.st-fr.st-ct.st-fm.st-fn, .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fs.st-ft.st-ct.st-fm.st-fn
+    .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fk.st-fl.st-ct.st-fm.st-fn, .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-cc.st-cd.st-ct.st-fm.st-fn, .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fo.st-fp.st-ct.st-fm.st-fn, .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fq.st-fr.st-ct.st-fm.st-fn, .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fs.st-ft.st-ct.st-fm.st-fn
  {
         background-color : #8C6F63 !important;
     }
