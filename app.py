@@ -112,6 +112,10 @@ st.markdown("""
     .stButton button[kind="primary"]:hover {
         background-color: #D5CFC6 !important;
     }
+
+    .st-c2.st-c3.st-c4.st-c5.st-c6.st-c7.st-fk.st-fl.st-ct.st-fm.st-fn {
+        background-color : #8C6F63 !important;
+    }
     
     /* Conteneurs */
     .stContainer {
