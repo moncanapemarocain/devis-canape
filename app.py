@@ -13,7 +13,7 @@ from pricing import calculer_prix_total
 from pdf_generator import generer_pdf_devis
 
 # Import des fonctions de génération de schémas depuis canapefullv77matplot
-from canapefullv77matplot import (
+from canapematplot import (
     render_LNF, render_LF_variant, render_U2f_variant,
     render_U, render_U1F_v1, render_U1F_v2, render_U1F_v3, render_U1F_v4,
     render_Simple1
