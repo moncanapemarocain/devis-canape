@@ -78,6 +78,10 @@ st.markdown("""
         color: #8C6F63 !important;
         font-weight: 500;
     }
+
+    div.st-an {
+        background-color : red 
+    }
     
     /* Checkbox */
     .stCheckbox label {
