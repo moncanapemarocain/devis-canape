@@ -107,12 +107,7 @@ st.markdown("""
         background-color: #D5CFC6 !important;
         transform: translateY(-2px);
     }
-    
-    /* Bouton primaire (Générer le devis) */
-    .stButton button[kind="primary"] {
-        background-color: #EDE7DE !important;
-        color: #FBF6EF !important;
-    }
+
     
     .stButton button[kind="primary"]:hover {
         background-color: #B55718 !important;
