@@ -95,214 +95,171 @@ def _compute_dossiers_count(polys):
 #   - Légende affiche la couleur choisie ("Dossier (gris clair)", etc.)
 #   - Correctifs nommage 'coussins_count' -> 'cushions_count'
 
-import math
-import unicodedata
-
+import math, unicodedata
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
-import types
 
-# =========================
-# Adapteur "turtle" -> Matplotlib
-# =========================
+# --- Backend "tortue" basé sur Matplotlib ---------------------------------
 
-_current_screen = None
+CURRENT_AX = None  # axe courant sur lequel on dessine
 
-class _Screen:
+class MplScreen:
     def __init__(self):
-        global _current_screen
+        global CURRENT_AX
         self.fig, self.ax = plt.subplots()
-        self.ax.set_aspect('equal', adjustable='box')
-        self.width = None
-        self.height = None
-        _current_screen = self
+        CURRENT_AX = self.ax
 
     def setup(self, width, height):
-        """Approxime turtle.Screen().setup(width,height)."""
-        self.width, self.height = float(width), float(height)
-        # conversion très simple pixels -> pouces
-        try:
-            self.fig.set_size_inches(self.width / 100.0, self.height / 100.0)
-        except Exception:
-            pass
-        # on centre la scène sur (0,0), comme turtle
-        half_w = self.width / 2.0
-        half_h = self.height / 2.0
-        self.ax.set_xlim(-half_w, half_w)
-        self.ax.set_ylim(-half_h, half_h)
-        self.ax.axis('off')
-
-    def title(self, text):
-        try:
-            self.fig.suptitle(text)
-        except Exception:
-            pass
+        # width/height en pixels comme avec turtle.Screen.setup
+        dpi = self.fig.dpi
+        self.fig.set_size_inches(width / dpi, height / dpi)
+        self.ax.set_xlim(-width / 2.0, width / 2.0)
+        self.ax.set_ylim(-height / 2.0, height / 2.0)
+        self.ax.set_aspect("equal", adjustable="box")
+        self.ax.axis("off")
 
     def tracer(self, flag):
-        # Utilisé uniquement pour accélérer le rendu dans turtle.
-        # Avec Matplotlib on ne s'en sert pas : méthode factice pour compatibilité.
+        # contrôle d'animation de turtle → inutile avec Matplotlib
         pass
 
+    def title(self, txt):
+        self.fig.suptitle(txt)
 
-class _Turtle:
+class MplTurtle:
     def __init__(self, visible=True):
-        global _current_screen
-        if _current_screen is None:
-            _current_screen = _Screen()
-        self.screen = _current_screen
-        self.ax = self.screen.ax
+        global CURRENT_AX
+        # si on crée une tortue avant l'écran, on récupère l'axe courant
+        self.ax = CURRENT_AX or plt.gca()
         self.x = 0.0
         self.y = 0.0
-        # 0° vers la droite, positif = anti-horaire (comme turtle)
-        self.heading = 0.0
-        self.pen_down = True
-        self.linewidth = 1.0
-        self.pencolor_value = "black"
-        self.fillcolor_value = "black"
+        self.heading = 0.0  # degrés, 0 = vers la droite
+        self.isdown = True
+        self.pensize_val = 1.0
+        self.pencolor_val = "black"
+        self.fillcolor_val = None
         self.is_filling = False
         self.fill_path = []
-        # "visible" ignoré : on ne dessine jamais la tortue elle-même.
 
-    # --- Gestion du stylo ---
-    def up(self):
-        self.pen_down = False
+    # méthodes "cosmétiques" de turtle
+    def speed(self, *_args, **_kwargs):
+        return self
 
-    def down(self):
-        self.pen_down = True
+    def hideturtle(self):
+        return self
 
-    # alias turtle
-    def penup(self):
-        self.up()
-
-    def pendown(self):
-        self.down()
-
+    # stylo / couleur
     def pensize(self, w):
-        self.linewidth = float(w)
+        self.pensize_val = float(w)
 
     def pencolor(self, c):
-        self.pencolor_value = c
+        self.pencolor_val = c
 
     def fillcolor(self, c):
-        self.fillcolor_value = c
+        self.fillcolor_val = c
 
-    # --- Orientation / déplacement ---
-    def setheading(self, angle):
-        self.heading = float(angle)
+    # stylo levé / baissé
+    def up(self):
+        self.isdown = False
 
+    def down(self):
+        self.isdown = True
+        if self.is_filling and not self.fill_path:
+            self.fill_path.append((self.x, self.y))
+
+    # déplacements
     def goto(self, x, y):
         x = float(x)
         y = float(y)
-        if self.pen_down:
-            self.ax.plot([self.x, x], [self.y, y],
-                         linewidth=self.linewidth,
-                         color=self.pencolor_value)
-        if self.is_filling:
-            if not self.fill_path:
-                self.fill_path.append((self.x, self.y))
-            self.fill_path.append((x, y))
+        if self.isdown:
+            self.ax.plot(
+                [self.x, x],
+                [self.y, y],
+                linewidth=self.pensize_val,
+                color=self.pencolor_val,
+            )
+            if self.is_filling:
+                self.fill_path.append((x, y))
         self.x, self.y = x, y
 
-    def forward(self, dist):
-        r = math.radians(self.heading)
-        nx = self.x + dist * math.cos(r)
-        ny = self.y + dist * math.sin(r)
-        self.goto(nx, ny)
+    def setheading(self, angle):
+        self.heading = float(angle)
 
     def left(self, angle):
         self.heading += float(angle)
 
-    def right(self, angle):
-        self.heading -= float(angle)
+    def forward(self, dist):
+        rad = math.radians(self.heading)
+        nx = self.x + dist * math.cos(rad)
+        ny = self.y + dist * math.sin(rad)
+        self.goto(nx, ny)
 
-    # --- Remplissage ---
+    # remplissage
     def begin_fill(self):
         self.is_filling = True
         self.fill_path = [(self.x, self.y)]
 
     def end_fill(self):
         if self.is_filling and len(self.fill_path) >= 3:
-            poly = Polygon(self.fill_path, closed=True,
-                           facecolor=self.fillcolor_value,
-                           edgecolor=self.pencolor_value,
-                           linewidth=self.linewidth)
+            poly = Polygon(
+                self.fill_path,
+                closed=True,
+                linewidth=self.pensize_val,
+                edgecolor=self.pencolor_val,
+                facecolor=self.fillcolor_val or "none",
+            )
             self.ax.add_patch(poly)
         self.is_filling = False
         self.fill_path = []
 
-    # --- Arc de cercle (utilisé pour les coins arrondis) ---
-    def circle(self, radius, extent=None, steps=None):
-        if extent is None:
-            extent = 360.0
-        extent = float(extent)
-        # nombre de segments pour approcher l'arc
-        if steps is None:
-            steps = max(4, int(abs(extent) / 5.0))
-        steps = max(1, int(steps))
+    # arcs de cercle (utilisés pour les coins arrondis)
+    def circle(self, radius, extent):
+        # approximation de l'arc par petits segments
+        steps = max(8, int(abs(extent) / 10))
+        step_angle = float(extent) / steps
 
-        start_heading = self.heading
-        r = float(radius)
-        # centre du cercle : à gauche de la tortue
-        h_rad = math.radians(start_heading)
-        cx = self.x - r * math.sin(h_rad)
-        cy = self.y + r * math.cos(h_rad)
-        phi0 = start_heading - 90.0  # angle du rayon au point de départ
+        # centre du cercle = à gauche de la direction courante (convention turtle)
+        h_rad = math.radians(self.heading)
+        cx = self.x + radius * math.sin(h_rad)
+        cy = self.y - radius * math.cos(h_rad)
 
-        xs = []
-        ys = []
-        for i in range(steps + 1):
-            phi = phi0 + extent * (i / float(steps))
-            pr = math.radians(phi)
-            x = cx + r * math.cos(pr)
-            y = cy + r * math.sin(pr)
-            xs.append(x)
-            ys.append(y)
-
-        # tracer l'arc
-        for x, y in zip(xs[1:], ys[1:]):
+        start = math.atan2(self.y - cy, self.x - cx)
+        for i in range(1, steps + 1):
+            ang = start + math.radians(step_angle * i)
+            x = cx + radius * math.cos(ang)
+            y = cy + radius * math.sin(ang)
             self.goto(x, y)
 
-        # nouvelle orientation de la tortue à la fin de l'arc
-        self.heading = start_heading + extent
+        self.heading += extent
 
-    # --- Texte ---
-    def write(self, text, align="left", font=None):
+    # texte
+    def write(self, txt, align="left", font=None):
         ha = {"left": "left", "center": "center", "right": "right"}.get(align, "left")
-        kwargs = {"ha": ha, "va": "center"}
-        if font is not None:
-            # tuple de type ("Arial", 12, "bold")
-            if len(font) > 0:
-                kwargs["fontfamily"] = font[0]
-            if len(font) > 1:
-                kwargs["fontsize"] = font[1]
-            if len(font) > 2:
-                style = font[2]
-                if style in ("bold", "normal"):
-                    kwargs["fontweight"] = style
-                else:
-                    kwargs["fontstyle"] = style
-        self.ax.text(self.x, self.y, str(text), **kwargs)
+        size = 10
+        weight = "normal"
+        if font and len(font) >= 2:
+            size = font[1]
+            if len(font) >= 3 and font[2] == "bold":
+                weight = "bold"
+        self.ax.text(
+            self.x,
+            self.y,
+            txt,
+            ha=ha,
+            va="center",
+            fontsize=size,
+            weight=weight,
+        )
 
-    # --- Autres méthodes ---
-    def speed(self, _):
-        # ignoré : sans effet en Matplotlib
-        pass
+# petit "namespace" pour mimer le module turtle
+class _TurtleNS:
+    Screen = MplScreen
+    Turtle = MplTurtle
 
-    def hideturtle(self):
-        # la tortue n'est jamais affichée
-        pass
-
-
-def _done():
-    """Équivalent de turtle.done() : affiche la figure Matplotlib."""
-    global _current_screen
-    if _current_screen is not None:
-        _current_screen.ax.set_aspect("equal", adjustable="box")
+    @staticmethod
+    def done():
         plt.show()
-    _current_screen = None
 
-
-turtle = types.SimpleNamespace(Screen=_Screen, Turtle=_Turtle, done=_done)
+turtle = _TurtleNS()
 
 # =========================
 # Réglages / constantes
@@ -319,11 +276,12 @@ LINE_WIDTH         = 2
 # - assises/banquettes = gris très clair (presque blanc)
 # - coussins = taupe
 # NB : Ces valeurs seront éventuellement écrasées à chaque render_* via _resolve_and_apply_colors()
-COLOR_ASSISE       = "#f6f6f6"  # gris très clair / presque blanc
-COLOR_ACC          = "#8f8f8f"  # gris
-COLOR_DOSSIER      = "#b8b8b8"  # gris plus clair que accoudoirs
-COLOR_CUSHION      = "#8B7E74"  # taupe
-COLOR_CONTOUR      = "black"
+# Palette par défaut : tout transparent sauf coussins (beige)
+COLOR_ASSISE       = None        # transparent (pas de remplissage)
+COLOR_ACC          = None        # transparent (pas de remplissage)
+COLOR_DOSSIER      = None        # transparent (pas de remplissage)
+COLOR_CUSHION      = "#f5f5dc"   # beige pour les coussins
+COLOR_CONTOUR      = "black"     # contours conservés en noir
 
 # (Conservés mais non utilisés car quadrillage/repères supprimés)
 GRID_MINOR_STEP    = 10
@@ -348,7 +306,7 @@ CUSHION_ROUND_R_CM = 3.0  # rayon ~3 cm, léger
 # --- Traversins (bolsters) ---
 TRAVERSIN_LEN   = 70     # longueur selon la profondeur
 TRAVERSIN_THK   = 30     # retrait sur la ligne de coussins
-COLOR_TRAVERSIN = "#e0d9c7"
+COLOR_TRAVERSIN = "#f5f5dc"  # même beige que les coussins
 
 def _segment_x_limits(pts, a_key, b_key):
     """
@@ -391,6 +349,7 @@ def _clamp_to_segment(x0, length, seg_min, seg_max, align="start"):
 FONT_LABEL      = ("Arial", 10, "bold")   # libellés banquettes/dossiers/accoudoirs
 FONT_CUSHION    = ("Arial", 9,  "bold")   # tailles des coussins + "70x30"
 FONT_DIM        = ("Arial", 10, "bold")   # flèches d’encombrement
+FONT_THICKNESS  = ("Arial", 9,  "bold")   # épaisseur dossiers/accoudoirs (10 / 15)
 FONT_LEGEND     = ("Arial", 10, "normal") # texte de légende
 FONT_TITLE      = ("Arial", 12, "bold")   # titre "Canapé en U …"
 LEGEND_BOX_PX   = 14
@@ -555,55 +514,23 @@ def _parse_couleurs_argument(couleurs):
 
 def _resolve_and_apply_colors(couleurs):
     """
-    Résout la palette utilisateur puis applique aux variables globales:
-      COLOR_ASSISE, COLOR_ACC, COLOR_DOSSIER, COLOR_CUSHION
-    Retourne une liste d'items pour la légende: [(libellé, hex, nom)]
-    Règle : si dossiers non spécifié mais accoudoirs oui => dossiers = accoudoirs éclaircis.
+    Nouveau comportement (client) :
+      - par défaut, tout est transparent sauf les coussins (beige),
+      - on ne produit plus d'items de légende.
+    L'argument `couleurs` est ignoré pour figer la charte graphique.
     """
     global COLOR_ASSISE, COLOR_ACC, COLOR_DOSSIER, COLOR_CUSHION
 
-    # base par défaut (demande client)
-    default = {
-        "accoudoirs": "gris",
-        "dossiers":   None,  # sera éclairci à partir des accoudoirs si None
-        "assise":     "gris très clair presque blanc",
-        "coussins":   "taupe",
-    }
-    user = _parse_couleurs_argument(couleurs)
-    spec = {**default, **user}
+    # Tout transparent sauf les coussins
+    COLOR_ASSISE  = None
+    COLOR_ACC     = None
+    COLOR_DOSSIER = None
+    COLOR_CUSHION = "#f5f5dc"
 
-    # accoudoirs
-    acc_hex, acc_name = _parse_color_value(spec["accoudoirs"])
-    # dossiers
-    if spec["dossiers"] is None:
-        # auto : un ton plus clair que accoudoirs
-        dos_hex = _lighten(acc_hex, 0.20)
-        dos_name = (acc_name+" clair") if acc_name else "gris clair"
-    else:
-        dos_hex, dos_name = _parse_color_value(spec["dossiers"])
-    # assise
-    ass_hex, ass_name = _parse_color_value(spec["assise"])
-    # coussins
-    cush_hex, cush_name = _parse_color_value(spec["coussins"])
+    # Plus de légende de couleurs
+    return []
 
-    # applique globals
-    COLOR_ACC     = acc_hex
-    COLOR_DOSSIER = dos_hex
-    COLOR_ASSISE  = ass_hex
-    COLOR_CUSHION = cush_hex
 
-    # Items de légende (texte + nom de couleur si dispo)
-    items = [
-        ("Dossier",   COLOR_DOSSIER, dos_name),
-        ("Accoudoir", COLOR_ACC,     acc_name),
-        ("Coussins",  COLOR_CUSHION, cush_name),
-        ("Assise",    COLOR_ASSISE,  ass_name),
-    ]
-    return items
-
-# =========================
-# Transform cm → px (isométrique & centré)
-# =========================
 class WorldToScreen:
     def __init__(self, tx_cm, ty_cm, win_w=WIN_W, win_h=WIN_H, pad_px=PAD_PX, zoom=ZOOM):
         sx = (win_w - 2*pad_px) / float(tx_cm or 1)
@@ -788,6 +715,103 @@ def _poly_has_area(p):
     xs=[x for x,y in p]; ys=[y for x,y in p]
     return (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9)
 
+
+def _label_thickness_once(t, tr, polys, key, text):
+    """
+    Place les libellés d'épaisseur ("10" ou "15") avec une logique adaptée :
+      - Pour les dossiers (key == "dossiers") :
+          * s'il existe un dossier bas (polygones plutôt horizontaux) → un seul "10"
+            au centre de l'ensemble des dossiers bas ;
+          * sinon → un "10" centré sur le dossier gauche et un sur le dossier droit,
+            s'ils existent.
+      - Pour les accoudoirs (key == "accoudoirs") :
+          * un "15" centré dans chaque accoudoir.
+    Les chiffres sont écrits avec une police plus petite (FONT_THICKNESS).
+    """
+    polys_list = polys.get(key, [])
+    if not polys_list:
+        return
+
+    # Ne garder que les polygones avec une vraie surface
+    polys_list = [p for p in polys_list if _poly_has_area(p)]
+    if not polys_list:
+        return
+
+    # Cas simple : accoudoirs -> un "15" par accoudoir
+    if key == "accoudoirs":
+        for p in polys_list:
+            label_poly(t, tr, p, text, font=FONT_THICKNESS)
+        return
+
+    # Dossiers : on distingue dossiers bas (horizontaux) et latéraux (verticaux)
+    if key != "dossiers":
+        # Fallback générique : un seul libellé au centre
+        xs = [x for p in polys_list for x, y in p]
+        ys = [y for p in polys_list for x, y in p]
+        cx = (min(xs) + max(xs)) / 2.0
+        cy = (min(ys) + max(ys)) / 2.0
+        label_poly(t, tr, [(cx, cy)], text, font=FONT_THICKNESS)
+        return
+
+    horizontals = []
+    verticals = []
+    for p in polys_list:
+        xs = [x for x, y in p]
+        ys = [y for x, y in p]
+        w = max(xs) - min(xs)
+        h = max(ys) - min(ys)
+        if w >= h:
+            horizontals.append(p)
+        else:
+            verticals.append(p)
+
+    # Priorité : dossier bas si présent (un seul "10" centré)
+    if horizontals:
+        xs = [x for p in horizontals for x, y in p]
+        ys = [y for p in horizontals for x, y in p]
+        cx = (min(xs) + max(xs)) / 2.0
+        cy = (min(ys) + max(ys)) / 2.0
+        label_poly(t, tr, [(cx, cy)], text, font=FONT_THICKNESS)
+        return
+
+    # Sinon : dossiers gauche/droite (verticaux)
+    if not verticals:
+        return
+
+    # Un seul dossier vertical → un seul "10"
+    if len(verticals) == 1:
+        label_poly(t, tr, verticals[0], text, font=FONT_THICKNESS)
+        return
+
+    # Plusieurs dossiers verticaux : regrouper à gauche et à droite
+    centroids = []
+    for p in verticals:
+        xs = [x for x, y in p]
+        ys = [y for x, y in p]
+        centroids.append((sum(xs) / len(xs), sum(ys) / len(ys)))
+
+    xs_c = [cx for cx, _ in centroids]
+    midx = (min(xs_c) + max(xs_c)) / 2.0
+
+    left_group = [p for p, (cx, cy) in zip(verticals, centroids) if cx < midx]
+    right_group = [p for p, (cx, cy) in zip(verticals, centroids) if cx > midx]
+
+    groups = []
+    if left_group and right_group:
+        groups = [left_group, right_group]
+    else:
+        # Cas dégénéré : on prend simplement le plus à gauche et le plus à droite
+        ordered = sorted(zip(verticals, centroids), key=lambda pc: pc[1][0])
+        groups = [[ordered[0][0]], [ordered[-1][0]]]
+
+    for group in groups:
+        xs = [x for p in group for x, y in p]
+        ys = [y for p in group for x, y in p]
+        cx = (min(xs) + max(xs)) / 2.0
+        cy = (min(ys) + max(ys)) / 2.0
+        label_poly(t, tr, [(cx, cy)], text, font=FONT_THICKNESS)
+
+
 def _assert_banquettes_max_250(polys):
     for poly in polys.get("banquettes", []):
         L, P = banquette_dims(poly)
@@ -823,124 +847,16 @@ def _wrap_text(text, max_len=28):
     return lines
 
 def draw_title_center(t, tr, tx_cm, ty_cm, text):
-    """Titre centré en haut de la scène, à l’intérieur de l’espace visible."""
-    left = tr.left_px; bottom = tr.bottom_px
-    right = left + tx_cm*tr.scale; top = bottom + ty_cm*tr.scale
-    cx = (left + right)/2.0
-    y  = top - TITLE_MARGIN_PX
-    lines = _wrap_text(text, max_len=34)
-    for i, line in enumerate(lines):
-        pen_up_to(t, cx, y - i*18)
-        t.write(line, align="center", font=FONT_TITLE)
+    """Titre désactivé : on ne dessine plus de titre principal."""
+    return
 
 def draw_legend(t, tr, tx_cm, ty_cm, items=None, pos="top-right"):
     """
-    Légende avec items = [(label, hex, name), ...]
-      - pos: "top-right" (par défaut) ou "top-center" (pour U afin d'éviter recouvrement)
+    Légende désactivée : à la demande du client, on ne dessine plus
+    ni encadré ni textes de légende.
     """
-    left = tr.left_px; bottom = tr.bottom_px
-    right = left + tx_cm*tr.scale; top = bottom + ty_cm*tr.scale
+    return
 
-    # Items / couleurs
-    if not items:
-        items = [
-            ("Dossier",   COLOR_DOSSIER, None),
-            ("Accoudoir", COLOR_ACC,     None),
-            ("Coussins",  COLOR_CUSHION, None),
-            ("Assise",    COLOR_ASSISE,  None),
-        ]
-    # Taille & position + placement "safe" (jamais sur le schéma)
-    box = LEGEND_BOX_PX
-    gap = LEGEND_GAP_PX
-    # largeur texte (un peu plus pour nom de teinte)
-    max_text_w_px = 220
-    total_h = len(items) * (box) + (len(items) - 1) * gap
-    total_w = box + 8 + max_text_w_px
-
-    # Dimensions du fond de légende
-    legend_w = total_w + 16
-    legend_h = total_h + 16
-
-    # Bords de l'écran (px)
-    scr_left, scr_right = -WIN_W / 2.0, WIN_W / 2.0
-    scr_bottom, scr_top = -WIN_H / 2.0, WIN_H / 2.0
-
-    # Limites de la scène utile (schéma)
-    # (déjà calculées : left, right, bottom, top)
-
-    # Espaces libres autour du schéma
-    free_top = scr_top - top
-    free_right = scr_right - right
-    free_left = left - scr_left
-    free_bottom = bottom - scr_bottom  # pas utilisé mais conservé pour extensions
-
-    def _clamp(v, a, b):
-        return max(a, min(b, v))
-
-    SAFE = LEGEND_SAFE_PX
-    EDGE = LEGEND_EDGE_PX
-    x0 = None; y0 = None
-
-    if pos == "top-center":
-        # 1) Idéal : au‑dessus du schéma, centré, à distance SAFE
-        if free_top >= legend_h + SAFE:
-            cx = (left + right) / 2.0
-            x0 = _clamp(cx - total_w / 2.0, scr_left + EDGE, scr_right - EDGE - total_w)
-            # y0 = "ligne de tête" des items ; le fond ira de (y0 - total_h - 8) à (y0 + 8)
-            y0 = min(scr_top - EDGE, top + SAFE + total_h + 8)
-        # 2) Sinon : à droite du schéma
-        elif free_right >= legend_w + SAFE:
-            x0 = min(scr_right - EDGE - total_w, right + SAFE + 8)
-            y0 = min(scr_top - EDGE, top - 12)
-        # 3) Sinon : à gauche du schéma
-        elif free_left >= legend_w + SAFE:
-            x0 = max(scr_left + EDGE, left - SAFE - total_w - 8)
-            y0 = min(scr_top - EDGE, top - 12)
-        # 4) Repli ultime : en haut‑centre, à l’intérieur (comportement d’avant)
-        else:
-            cx = (left + right) / 2.0
-            x0 = _clamp(cx - total_w / 2.0, left + 12, right - total_w - 12)
-            y0 = top - 12
-    else:
-        # pos = "top-right" → on privilégie la droite, sinon le dessus, puis la gauche
-        if free_right >= legend_w + SAFE:
-            x0 = min(scr_right - EDGE - total_w, right + SAFE + 8)
-            y0 = min(scr_top - EDGE, top - 12)
-        elif free_top >= legend_h + SAFE:
-            x0 = _clamp(right - total_w, scr_left + EDGE, scr_right - EDGE - total_w)
-            y0 = min(scr_top - EDGE, top + SAFE + total_h + 8)
-        elif free_left >= legend_w + SAFE:
-            x0 = max(scr_left + EDGE, left - SAFE - total_w - 8)
-            y0 = min(scr_top - EDGE, top - 12)
-        else:
-            # Repli : ancien placement en haut‑droite à l’intérieur
-            x0 = right - total_w - 12
-            y0 = top - 12
-
-    # Fond (léger)
-    _draw_rect_px(
-        t,
-        x0 - 8,
-        y0 - total_h - 8,
-        total_w + 16,
-        total_h + 16,
-        fill="#ffffff",
-        outline="#aaaaaa",
-        width=1,
-    )
-
-    # Lignes
-    cur_y = y0 - box
-    for label, col, name in items:
-        _draw_rect_px(t, x0, cur_y, box, box, fill=col, outline=COLOR_CONTOUR, width=1)
-        pen_up_to(t, x0 + box + 8, cur_y + box/2 - 6)
-        lbl = f"{label}" + ("" if not name else f" ({name})")
-        t.write(lbl, align="left", font=FONT_LEGEND)
-        cur_y -= (box + gap)
-
-# =====================================================================
-# ================  COUSSINS — utilitaires limites méridienne =========
-# =====================================================================
 
 def _lim_x(pts, key):
     """Récupère x d’extrémité pour dessin coussins : supporte <key>, <key>_mer et <key>_."""
@@ -1942,8 +1858,8 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
-    for poly in polys["dossiers"]: label_poly(t,tr,poly,"10")
-    for poly in polys["accoudoirs"]: label_poly(t,tr,poly,"15")
+    _label_thickness_once(t, tr, polys, "dossiers", "10")
+    _label_thickness_once(t, tr, polys, "accoudoirs", "15")
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
@@ -3116,14 +3032,8 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
-    for p in polys["dossiers"]:
-        xs=[pp[0] for pp in p]; ys=[pp[1] for pp in p]
-        if (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9):
-            label_poly(t,tr,p,"10")
-    for p in polys["accoudoirs"]:
-        xs=[pp[0] for pp in p]; ys=[pp[1] for pp in p]
-        if (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9):
-            label_poly(t,tr,p,"15")
+    _label_thickness_once(t, tr, polys, "dossiers", "10")
+    _label_thickness_once(t, tr, polys, "accoudoirs", "15")
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
@@ -3689,8 +3599,8 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
         else:
             label_poly(t, tr, poly, text)
 
-    for p in polys["dossiers"]:   label_poly(t,tr,p,"10")
-    for p in polys["accoudoirs"]: label_poly(t,tr,p,"15")
+    _label_thickness_once(t, tr, polys, "dossiers", "10")
+    _label_thickness_once(t, tr, polys, "accoudoirs", "15")
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
@@ -5120,12 +5030,8 @@ def _render_common_U(
             label_poly(t, tr, poly, text)
 
     # Label backs and armrests
-    for p in polys["dossiers"]:
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "10")
-    for p in polys["accoudoirs"]:
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "15")
+    _label_thickness_once(t, tr, polys, "dossiers", "10")
+    _label_thickness_once(t, tr, polys, "accoudoirs", "15")
 
     # Draw cushions
     spec = _parse_coussins_spec(coussins)
@@ -5904,10 +5810,8 @@ def render_Simple1(tx,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
-    for p in polys["dossiers"]:
-        if _poly_has_area(p): label_poly(t, tr, p, "10")
-    for p in polys["accoudoirs"]:
-        if _poly_has_area(p): label_poly(t, tr, p, "15")
+    _label_thickness_once(t, tr, polys, "dossiers", "10")
+    _label_thickness_once(t, tr, polys, "accoudoirs", "15")
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
