@@ -102,7 +102,7 @@ st.markdown("""
     
     /* Bouton primaire (Générer le devis) */
     .stButton button[kind="primary"] {
-        background-color: #CF661B !important;
+        background-color: #EDE7DE !important;
         color: #FBF6EF !important;
     }
     
