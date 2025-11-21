@@ -274,9 +274,6 @@ with tab3:
         dossier_left = st.checkbox("Dossier Gauche", value=True) if "Simple" not in st.session_state.type_canape else False
         dossier_bas = st.checkbox("Dossier Bas", value=True)
         dossier_right = st.checkbox("Dossier Droit", value=True) if ("U" in st.session_state.type_canape) else False
-        
-        st.markdown("**Finitions**")
-        arrondis = st.checkbox("Arrondis", value=True, help="Ajoute des arrondis aux angles du canapé")
     
     with col2:
         st.markdown("**Méridienne**")
@@ -367,8 +364,7 @@ with tab5:
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
-                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
-                        arrondis=arrondis
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
                     )
                     
                     st.markdown("### 📊 Détails du Devis")
@@ -413,8 +409,7 @@ with tab5:
                                 'acc_left': acc_left, 'acc_right': acc_right, 'acc_bas': acc_bas,
                                 'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
                                 'meridienne_side': meridienne_side, 'meridienne_len': meridienne_len,
-                                'type_coussins': type_coussins, 'type_mousse': type_mousse, 'epaisseur': epaisseur,
-                                'arrondis': arrondis
+                                'type_coussins': type_coussins, 'type_mousse': type_mousse, 'epaisseur': epaisseur
                             },
                             'client': {'nom': nom_client, 'email': email_client, 'telephone': telephone_client, 'departement': departement_client}
                         }
@@ -427,8 +422,7 @@ with tab5:
                             acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                             dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                             nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
-                            has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
-                            arrondis=arrondis
+                            has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
                         )
                         
                         pdf_buffer = generer_pdf_devis(config, prix_details, schema_image=img_buffer)
