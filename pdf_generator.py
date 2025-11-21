@@ -22,14 +22,14 @@ def generer_pdf_devis(config, prix_details, schema_image=None):
     styles = getSampleStyleSheet()
     
     # --- DÉFINITION DES STYLES ---
-    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.black, spaceAfter=5, alignment=TA_CENTER, fontName='Helvetica-Bold')
-    header_info_style = ParagraphStyle('HeaderInfo', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.black, alignment=TA_CENTER)
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.black, spaceAfter=10, alignment=TA_CENTER, fontName='Helvetica-Bold')
+    header_info_style = ParagraphStyle('HeaderInfo', parent=styles['Normal'], fontSize=12, leading=14, textColor=colors.black, alignment=TA_CENTER, spaceAfter=10)
     price_style = ParagraphStyle('PriceStyle', parent=styles['Heading2'], fontSize=16, alignment=TA_CENTER, fontName='Helvetica', textColor=colors.black, spaceBefore=10, spaceAfter=10)
     
     # Styles pour le pied de page
-    column_header_style = ParagraphStyle('ColumnHeaderStyle', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold', alignment=TA_LEFT, spaceAfter=2)
-    detail_style = ParagraphStyle('DetailStyle', parent=styles['Normal'], fontSize=10, leading=10, textColor=colors.black, alignment=TA_LEFT)
-    footer_style = ParagraphStyle('FooterStyle', parent=styles['Normal'], fontSize=10, textColor=colors.black, alignment=TA_CENTER)
+    column_header_style = ParagraphStyle('ColumnHeaderStyle', parent=styles['Normal'], fontSize=12, fontName='Helvetica-Bold', alignment=TA_LEFT, spaceAfter=4)
+    detail_style = ParagraphStyle('DetailStyle', parent=styles['Normal'], fontSize=12, leading=14, textColor=colors.black, alignment=TA_LEFT)
+    footer_style = ParagraphStyle('FooterStyle', parent=styles['Normal'], fontSize=12, textColor=colors.black, alignment=TA_CENTER)
 
     # --- FONCTION INTERNE POUR DESSINER LE PIED DE PAGE FIXE ---
     def draw_footer(canvas, doc):
