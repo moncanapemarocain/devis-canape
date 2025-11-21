@@ -36,7 +36,7 @@ st.markdown("""
     
     /* Titres */
     h1, h2, h3 {
-        color: #000000 !important;
+        color: #4C4C4C0 !important;
     }
 
     p {
