@@ -87,6 +87,10 @@ st.markdown("""
     .stCheckbox label {
         color: #8C6F63 !important;
     }
+
+    div.st-emotion-cache-1q82h82.e1wr3kle3 {
+        color: black;
+    }
     
     /* Boutons normaux */
     .stButton button {
