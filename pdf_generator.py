@@ -1,233 +1,176 @@
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-# Assurez-vous d'importer PageBreak si vous l'utilisez, et Image pour le schéma
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from io import BytesIO
 
 def generer_pdf_devis(config, prix_details, schema_image=None):
     """
-    Génère un PDF de devis professionnel
+    Génère un PDF de devis (1 page) avec un pied de page fixe en bas.
     """
     buffer = BytesIO()
+    
+    # IMPORTANT : On augmente la marge du bas (bottomMargin) à 6cm
+    # pour réserver l'espace nécessaire au pied de page fixe.
     doc = SimpleDocTemplate(buffer, pagesize=A4,
-                           rightMargin=2*cm, leftMargin=2*cm,
-                           topMargin=2*cm, bottomMargin=2*cm)
+                           rightMargin=1*cm, leftMargin=1*cm,
+                           topMargin=1*cm, bottomMargin=6*cm)
     
     elements = []
     styles = getSampleStyleSheet()
     
     # --- DÉFINITION DES STYLES ---
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.black, spaceAfter=5, alignment=TA_CENTER, fontName='Helvetica-Bold')
+    header_info_style = ParagraphStyle('HeaderInfo', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.black, alignment=TA_CENTER)
+    price_style = ParagraphStyle('PriceStyle', parent=styles['Heading2'], fontSize=16, alignment=TA_CENTER, fontName='Helvetica', textColor=colors.black, spaceBefore=10, spaceAfter=10)
+    
+    # Styles pour le pied de page
+    column_header_style = ParagraphStyle('ColumnHeaderStyle', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold', alignment=TA_LEFT, spaceAfter=2)
+    detail_style = ParagraphStyle('DetailStyle', parent=styles['Normal'], fontSize=10, leading=10, textColor=colors.black, alignment=TA_LEFT)
+    footer_style = ParagraphStyle('FooterStyle', parent=styles['Normal'], fontSize=10, textColor=colors.black, alignment=TA_CENTER)
 
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=12,
-        textColor=colors.black,
-        spaceAfter=20,
-        alignment=TA_CENTER,
-        fontName='Helvetica-Bold'
-    )
-    
-    # MODIFICATION 1 : Ajout de alignment=TA_CENTER pour centrer Dimensions, Caractéristiques, Client
-    section_style = ParagraphStyle(
-        'SectionStyle',
-        parent=styles['Normal'],
-        fontSize=12,
-        textColor=colors.black,
-        spaceAfter=8,
-        spaceBefore=4,
-        leftIndent=0,
-        alignment=TA_CENTER  # <--- C'est ici que ça se joue pour le centrage
-    )
-    
-    # AJOUT : Un style aligné à gauche spécifiquement pour les colonnes du bas
-    # (car des listes à puces centrées sont difficiles à lire)
-    column_header_style = ParagraphStyle(
-        'ColumnHeaderStyle',
-        parent=section_style,
-        alignment=TA_LEFT
-    )
+    # --- FONCTION INTERNE POUR DESSINER LE PIED DE PAGE FIXE ---
+    def draw_footer(canvas, doc):
+        canvas.saveState()
+        
+        # 1. Préparation des données des colonnes (ex-Partie 5)
+        
+        # Colonne Gauche
+        col_gauche = []
+        col_gauche.append(Paragraph("Il faut savoir que le tarif comprend :", column_header_style))
+        inclus_items = [
+            "Livraison bas d'immeuble",
+            "Fabrication 100% artisanale France",
+            "Choix du tissu qui n'impacte pas le devis",
+            "Possibilité de payer en 2 à 6 fois sans frais",
+            "Livraison en bas d'immeuble en 5 à 7 semaines",
+            "Housses de matelas et coussins déhoussables"
+        ]
+        for item in inclus_items:
+            col_gauche.append(Paragraph(f"• {item}", detail_style))
 
-    detail_style = ParagraphStyle(
-        'DetailStyle',
-        parent=styles['Normal'],
-        fontSize=10,
-        textColor=colors.black,
-        spaceAfter=4,
-        leftIndent=10,
-        alignment=TA_LEFT
-    )
+        # Colonne Droite
+        col_droite = []
+        col_droite.append(Paragraph("Détail des cotations du canapé:", column_header_style))
+        
+        h_mousse = config['options'].get('epaisseur', 25)
+        h_assise = 46 if h_mousse > 20 else 40
+        
+        cotations_items = [
+            "Accoudoir: 15cm large / 60cm haut",
+            "Dossier: 10cm large / 70cm haut",
+            "Coussins: 65/80/90cm large",
+            f"Profondeur assise: {config['dimensions']['profondeur']} cm",
+            f"Hauteur assise: {h_assise} cm (Mousse {h_mousse}cm)"
+        ]
+        for item in cotations_items:
+            col_droite.append(Paragraph(f"• {item}", detail_style))
+
+        # Création du tableau pour les colonnes
+        table_footer = Table([[col_gauche, col_droite]], colWidths=[9.5*cm, 9.5*cm])
+        table_footer.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]))
+        
+        # Calcul de la taille et dessin
+        # On le dessine à 2cm du bas de la page (juste au-dessus de la ville)
+        w, h = table_footer.wrap(doc.width, doc.bottomMargin)
+        table_footer.drawOn(canvas, doc.leftMargin, 1.5*cm)
+        
+        # 2. Ville (ex-Partie 6) - Tout en bas
+        p_ville = Paragraph("FRÉVENT 62270", footer_style)
+        w_ville, h_ville = p_ville.wrap(doc.width, doc.bottomMargin)
+        p_ville.drawOn(canvas, doc.leftMargin, 0.5*cm)
+        
+        canvas.restoreState()
+
+    # =================== CONTENU DU DOCUMENT ===================
     
-    footer_style = ParagraphStyle(
-        'FooterStyle',
-        parent=styles['Normal'],
-        fontSize=10,
-        textColor=colors.black,
-        alignment=TA_CENTER,
-        spaceAfter=6
-    )
+    # 1. TITRE
+    elements.append(Paragraph("MON CANAPÉ MAROCAIN", title_style))
     
-    # =================== TITRE ===================
-    titre = Paragraph("MON CANAPÉ MAROCAIN", title_style)
-    elements.append(titre)
-    elements.append(Spacer(0.5, 0.5*cm))
-    
-    # =================== DIMENSIONS DU CANAPÉ (Sera centré via section_style) ===================
+    # 2. INFORMATIONS (HAUT)
     type_canape = config['type_canape']
-    dimensions = config['dimensions']
-    type_text = f"<b>Configuration :</b> {type_canape}"
+    dims = config['dimensions']
     
-    # Logique corrigée pour les dimensions (L et U)
     if "U" in type_canape:
-        dim_text = f"<b>Dimensions :</b> {dimensions['ty']}x{dimensions['tx']}x{dimensions['tz']}cm"
+        dim_str = f"{dims.get('ty',0)} x {dims.get('tx',0)} x {dims.get('tz',0)}"
     elif "L" in type_canape:
-        dim_text = f"<b>Dimensions :</b> {dimensions['ty']}x{dimensions['tx']}cm"
+        dim_str = f"{dims.get('ty',0)} x {dims.get('tx',0)}"
     else:
-        dim_text = f"<b>Dimensions :</b> {dimensions['tx']}cm"
-    
-    elements.append(Paragraph(type_text, section_style))
-    elements.append(Paragraph(dim_text, section_style))
+        dim_str = f"{dims.get('tx',0)} x {dims.get('profondeur',0)}"
+        
+    mousse_type = config['options'].get('type_mousse', 'HR35')
+    dossier_txt = 'Avec' if config['options'].get('dossier_bas') else 'Sans'
+    acc_txt = 'Oui' if (config['options'].get('acc_left') or config['options'].get('acc_right')) else 'Non'
 
-    # =================== CARACTÉRISTIQUES (Sera centré) ===================
-    elements.append(Paragraph(f"<b>Profondeur :</b> {dimensions['profondeur']}cm", section_style))
+    lignes_info = [
+        f"<b>Dimensions:</b> {dim_str} cm",
+        f"<b>Confort:</b> {mousse_type}",
+        f"<b>Dossiers:</b> {dossier_txt}",
+        f"<b>Accoudoirs:</b> {acc_txt}"
+    ]
     
-    mousse = config['options'].get('type_mousse', 'D25')
-    elements.append(Paragraph(f"<b>Mousse :</b> {mousse}", section_style))
+    client = config['client']
+    if client['nom']: lignes_info.append(f"<b>Nom:</b> {client['nom']}")
+    if client['email']: lignes_info.append(f"<b>Email:</b> {client['email']}")
     
-    has_dossier = (config['options'].get('dossier_left', False) or 
-                   config['options'].get('dossier_bas', False) or 
-                   config['options'].get('dossier_right', False))
-    elements.append(Paragraph(f"<b>Dossier :</b> {'Avec' if has_dossier else 'Sans'}", section_style))
+    elements.append(Paragraph("<br/>".join(lignes_info), header_info_style))
     
-    nb_accoudoirs = sum([config['options'].get('acc_left', False),
-                         config['options'].get('acc_right', False),
-                         config['options'].get('acc_bas', False)])
-    elements.append(Paragraph(f"<b>Accoudoirs :</b> {nb_accoudoirs}", section_style))
+    # Description mousse dynamique
+    descriptions_mousse = {
+        'D25': "La mousse D25 est une mousse polyuréthane de 25kg/m3. Elle est très ferme, parfaite pour les habitués des banquettes marocaines classiques.",
+        'D30': "La mousse D30 est une mousse polyuréthane de 30kg/m3. Elle est ultra ferme, idéale pour ceux qui recherchent un canapé très ferme.",
+        'HR35': "La mousse HR35 est une mousse haute résilience de 35kg/m3. Elle est semi ferme confortable, parfaite pour les adeptes des salons confortables.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l’affaissement dans le temps.",
+        'HR45': "La mousse HR45 est une mousse haute résilience de 45kg/m3. Elle est ferme confortable, parfaite pour les adeptes des salons confortables mais pas trop moelleux.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l’affaissement dans le temps."
+    }
+    texte_mousse = descriptions_mousse.get(mousse_type, descriptions_mousse['HR35'])
     
-    # =================== INFORMATIONS CLIENT (Sera centré) ===================
-    if config['client']['nom']:
-        elements.append(Paragraph(f"<b>Client :</b> {config['client']['nom']}", section_style))
-        if config['client']['email']:
-            elements.append(Paragraph(f"<b>Email :</b> {config['client']['email']}", section_style))
-    
-    elements.append(Spacer(1, 0.5*cm))
+    elements.append(Spacer(1, 0.2*cm))
+    elements.append(Paragraph(f"<i>{texte_mousse}</i>", header_info_style))
+    elements.append(Spacer(1, 0.3*cm))
 
-    # =================== SCHÉMA (Centré par défaut car c'est une image) ===================
+    # 3. SCHÉMA
     if schema_image:
         try:
             img = Image(schema_image)
-            max_width = 14 * cm # Un peu plus petit pour bien centrer visuellement
-            aspect_ratio = img.imageHeight / float(img.imageWidth)
-            img.drawWidth = max_width
-            img.drawHeight = max_width * aspect_ratio
+            avail_width = 18 * cm
+            avail_height = 10 * cm
             
-            elements.append(Spacer(1, 0.2*cm))
+            img_w = img.imageWidth
+            img_h = img.imageHeight
+            
+            if img_w > 0:
+                aspect = img_h / float(img_w)
+            else:
+                aspect = 1.0
+
+            if aspect > (avail_height / avail_width):
+                img.drawHeight = avail_height
+                img.drawWidth = avail_height / aspect
+            else:
+                img.drawWidth = avail_width
+                img.drawHeight = avail_width * aspect
+            
             elements.append(img)
-            elements.append(Spacer(1, 0.5*cm))
         except Exception:
-            pass
-            
-# =================== MODIFICATION 2 : COLONNES CÔTE À CÔTE ===================
-    # Pour mettre deux éléments côte à côte, on crée un tableau invisible de 1 ligne et 2 colonnes.
-    # Chaque cellule contient une liste d'éléments (Paragraphs).
+            elements.append(Paragraph("<i>(Schéma non disponible)</i>", header_info_style))
 
-    # --- Colonne Gauche : Inclus ---
-    col_gauche_content = []
-    col_gauche_content.append(Paragraph("<b>Le tarif comprend :</b>", column_header_style))
-    col_gauche_content.append(Spacer(1, 0.2*cm))
-    
-    inclus_items = [
-        "Livraison en bas d'immeuble",
-        "Fabrication 100% artisanale",
-        "Le choix du tissu n'impacte pas le devis",
-        "Possibilité de régler de 2 à 6 fois sans frais",
-        "Délai de livraison entre 5 à 7 semaines",
-        "Housses de matelas et coussins déhoussables"
-    ]
-    for item in inclus_items:
-        col_gauche_content.append(Paragraph(f"• {item}", detail_style))
+    elements.append(Spacer(1, 0.5*cm))
 
-    # --- Colonne Droite : Cotations ---
-    col_droite_content = []
-    col_droite_content.append(Paragraph("<b>Détail des cotations :</b>", column_header_style))
-    col_droite_content.append(Spacer(1, 0.2*cm))
-    
-    cotations_items = [
-        "Accoudoir : 15cm large / 60cm haut",
-        "Dossier : 10cm large / 70cm haut",
-        "Coussins : 65/80/90cm large",
-        "Profondeur assise : 70cm",
-        "Hauteur assise : 46cm",
-        "Hauteur mousse : 25 cm"
-    ]
-    for item in cotations_items:
-        col_droite_content.append(Paragraph(f"• {item}", detail_style))
+    # 4. PRIX
+    montant_ttc = f"{prix_details['total_ttc']:.2f} €"
+    elements.append(Paragraph(f"PRIX TOTAL TTC : {montant_ttc}", price_style))
+    elements.append(Paragraph("<hr width='100%' color='black'/>", styles['Normal']))
 
-    # Création du tableau conteneur pour les deux colonnes
-    # On utilise la largeur restante (environ 17-18cm) divisée par 2
-    table_colonnes = Table([[col_gauche_content, col_droite_content]], colWidths=[8.5*cm, 8.5*cm])
+    # Note : On n'ajoute plus les parties 5 et 6 ici (colonnes et footer)
+    # Elles sont gérées par la fonction draw_footer appelée via onFirstPage
     
-    table_colonnes.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'), # Aligner le contenu en haut
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('RIGHTPADDING', (0,0), (-1,-1), 0),
-    ]))
-    
-    elements.append(table_colonnes)
-    elements.append(Spacer(1, 1*cm))
-
-    # =================== TABLEAU DES PRIX ===================
-    # Titre du tableau (Centré)
-    elements.append(Paragraph("<b>DÉTAILS DU DEVIS</b>", section_style))
-    elements.append(Spacer(1, 0.3*cm))
-    
-    # ... (Logique du tableau de prix inchangée) ...
-    prix_data = [['Désignation', 'Prix (€)']]
-    for item, prix in prix_details['details'].items():
-        prix_data.append([item, f"{prix:.2f} €"])
-    
-    prix_data.append(['', ''])
-    prix_data.append(['SOUS-TOTAL HT', f"{prix_details['sous_total']:.2f} €"])
-    prix_data.append(['TVA (20%)', f"{prix_details['tva']:.2f} €"])
-    prix_data.append(['', ''])
-    prix_data.append(['TOTAL TTC', f"{prix_details['total_ttc']:.2f} €"])
-    
-    table_prix = Table(prix_data, colWidths=[12*cm, 5*cm])
-    
-    # Style du tableau de prix (identique à avant)
-    table_style = [
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('GRID', (0, 0), (-1, -4), 0.5, colors.grey),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.white),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-    ]
-    sous_total_row = len(prix_data) - 4
-    table_style.extend([
-        ('FONTNAME', (0, sous_total_row), (-1, sous_total_row + 1), 'Helvetica-Bold'),
-        ('LINEABOVE', (0, sous_total_row), (-1, sous_total_row), 1, colors.black),
-    ])
-    total_row = len(prix_data) - 1
-    table_style.extend([
-        ('FONTNAME', (0, total_row), (-1, total_row), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, total_row), (-1, total_row), 14),
-        ('LINEABOVE', (0, total_row), (-1, total_row), 2, colors.black),
-    ])
-    
-    table_prix.setStyle(TableStyle(table_style))
-    elements.append(table_prix)
-    elements.append(Spacer(1, 1.5*cm))
-
-    # =================== FOOTER ===================
-    elements.append(Paragraph("<b>FRÉVENT 62270</b>", footer_style))
-    
-    doc.build(elements)
+    # GÉNÉRATION AVEC CALLBACK POUR LE FOOTER
+    doc.build(elements, onFirstPage=draw_footer)
     buffer.seek(0)
     return buffer
