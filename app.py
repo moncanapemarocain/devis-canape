@@ -38,6 +38,10 @@ st.markdown("""
     h1, h2, h3 {
         color: #000000 !important;
     }
+
+    p {
+        color: #8C6F63 !important;
+    }
     
     /* Onglets */
     .stTabs [data-baseweb="tab-list"] {
