@@ -141,7 +141,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
 def generer_schema_canape(type_canape, tx, ty, tz, profondeur, 
                           acc_left, acc_right, acc_bas,
                           dossier_left, dossier_bas, dossier_right,
@@ -275,6 +274,9 @@ with tab3:
         dossier_left = st.checkbox("Dossier Gauche", value=True) if "Simple" not in st.session_state.type_canape else False
         dossier_bas = st.checkbox("Dossier Bas", value=True)
         dossier_right = st.checkbox("Dossier Droit", value=True) if ("U" in st.session_state.type_canape) else False
+        
+        st.markdown("**Finitions**")
+        arrondis = st.checkbox("Arrondis", value=True, help="Ajoute des arrondis aux angles du canapé")
     
     with col2:
         st.markdown("**Méridienne**")
@@ -320,8 +322,15 @@ with tab5:
     st.markdown("### Informations Client")
     st.markdown("Renseignez les coordonnées du client pour finaliser le devis")
     
-    nom_client = st.text_input("Nom du client *", placeholder="Entrez le nom du client")
-    email_client = st.text_input("Email (optionnel)", placeholder="client@example.com")
+    col_client1, col_client2 = st.columns(2)
+    
+    with col_client1:
+        nom_client = st.text_input("Nom du client *", placeholder="Entrez le nom du client")
+        telephone_client = st.text_input("N° de téléphone", placeholder="06 12 34 56 78")
+    
+    with col_client2:
+        email_client = st.text_input("Email (optionnel)", placeholder="client@example.com")
+        departement_client = st.text_input("Département", placeholder="Ex: Nord (59)")
     
     if email_client:
         st.info("L'email permet d'envoyer le devis au client")
@@ -358,7 +367,8 @@ with tab5:
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
-                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
+                        arrondis=arrondis
                     )
                     
                     st.markdown("### 📊 Détails du Devis")
@@ -403,9 +413,10 @@ with tab5:
                                 'acc_left': acc_left, 'acc_right': acc_right, 'acc_bas': acc_bas,
                                 'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
                                 'meridienne_side': meridienne_side, 'meridienne_len': meridienne_len,
-                                'type_coussins': type_coussins, 'type_mousse': type_mousse, 'epaisseur': epaisseur
+                                'type_coussins': type_coussins, 'type_mousse': type_mousse, 'epaisseur': epaisseur,
+                                'arrondis': arrondis
                             },
-                            'client': {'nom': nom_client, 'email': email_client}
+                            'client': {'nom': nom_client, 'email': email_client, 'telephone': telephone_client, 'departement': departement_client}
                         }
                         
                         prix_details = calculer_prix_total(
@@ -416,7 +427,8 @@ with tab5:
                             acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                             dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                             nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
-                            has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
+                            has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
+                            arrondis=arrondis
                         )
                         
                         pdf_buffer = generer_pdf_devis(config, prix_details, schema_image=img_buffer)
