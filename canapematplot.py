@@ -1,153 +1,3 @@
-"""
-Matplotlib-based version of canapefullv77.
-Automatically generated from the original turtle-based version.
-"""
-
-import math
-import unicodedata
-
-import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon, Rectangle
-from matplotlib.collections import PatchCollection
-
-
-class _MplScreen:
-    def __init__(self, width=900, height=700):
-        self.width = width
-        self.height = height
-        self.fig, self.ax = plt.subplots()
-        # Hide axes by default; the original turtle canvas has no axes.
-        self.ax.set_axis_off()
-        # Make this axes the current one for pyplot helpers.
-        plt.sca(self.ax)
-
-    def setup(self, width, height):
-        # Keep requested logical size; matplotlib sizing is handled by the GUI backend.
-        self.width = width
-        self.height = height
-
-    def title(self, txt):
-        self.fig.suptitle(str(txt))
-
-    def tracer(self, flag):
-        # turtle.tracer controls animation; not needed here.
-        pass
-
-
-class _MplTurtle:
-    def __init__(self, visible=True):
-        # Always draw in the current axes.
-        self.ax = plt.gca()
-        self._x = 0.0
-        self._y = 0.0
-        self._heading = 0.0  # degrees, 0 -> +X
-        self._pendown = False
-        self._pencolor = "black"
-        self._fillcolor = None
-        self._linewidth = 1.0
-        self._fill_path = None
-
-    # Basic state helpers
-    def up(self):
-        self._pendown = False
-
-    def down(self):
-        self._pendown = True
-        if self._fill_path is not None and not self._fill_path:
-            self._fill_path.append((self._x, self._y))
-
-    def pensize(self, width):
-        self._linewidth = width
-
-    def pencolor(self, color):
-        self._pencolor = color
-
-    def fillcolor(self, color):
-        self._fillcolor = color
-
-    # Movement
-    def goto(self, x, y):
-        if self._pendown:
-            self.ax.plot([self._x, x], [self._y, y],
-                         linewidth=self._linewidth,
-                         color=self._pencolor)
-            if self._fill_path is not None:
-                self._fill_path.append((x, y))
-        self._x, self._y = x, y
-
-    def setheading(self, angle):
-        self._heading = float(angle)
-
-    def forward(self, dist):
-        rad = math.radians(self._heading)
-        nx = self._x + dist * math.cos(rad)
-        ny = self._y + dist * math.sin(rad)
-        self.goto(nx, ny)
-
-    def left(self, angle):
-        self._heading += float(angle)
-
-    def right(self, angle):
-        self._heading -= float(angle)
-
-    # Filling
-    def begin_fill(self):
-        self._fill_path = [(self._x, self._y)]
-
-    def end_fill(self):
-        if self._fill_path:
-            poly = Polygon(self._fill_path,
-                           closed=True,
-                           facecolor=self._fillcolor if self._fillcolor else "none",
-                           edgecolor=self._pencolor,
-                           linewidth=self._linewidth)
-            self.ax.add_patch(poly)
-        self._fill_path = None
-
-    # Text
-    def write(self, text, align="center", font=("Arial", 10, "normal")):
-        ha = {"left": "left", "center": "center", "right": "right"}.get(align, "center")
-        self.ax.text(self._x, self._y, str(text),
-                     ha=ha, va="center")
-
-    # Misc. turtle API used by the original script
-    def hideturtle(self):
-        pass
-
-    def speed(self, val):
-        # Animation speed is ignored in the matplotlib backend.
-        pass
-
-    # Minimal circle implementation good enough for rounded corners
-    def circle(self, radius, extent):
-        # Approximate an arc with small forward steps.
-        steps = max(4, int(abs(extent) / 5))
-        step_angle = float(extent) / steps
-        arc_length = 2 * math.pi * abs(radius) * abs(extent) / 360.0
-        step_length = arc_length / steps if steps else 0.0
-        # Rough approximation: walk the arc while turning slightly at each step.
-        for _ in range(steps):
-            self.forward(step_length)
-            self.left(step_angle)
-
-
-def _mpl_done():
-    ax = plt.gca()
-    ax.set_aspect("equal", adjustable="box")
-    plt.show()
-
-
-class _TurtleShim:
-    Screen = _MplScreen
-    Turtle = _MplTurtle
-    done = staticmethod(_mpl_done)
-
-
-# Expose the shim under the name "turtle" so the original code keeps working.
-turtle = _TurtleShim()
-
-
-
 
 
 
@@ -245,6 +95,270 @@ def _compute_dossiers_count(polys):
 #   - Légende affiche la couleur choisie ("Dossier (gris clair)", etc.)
 #   - Correctifs nommage 'coussins_count' -> 'cushions_count'
 
+import math, unicodedata
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
+# -----------------------------------------------------------------------------
+# Remplacement de la bibliothèque Turtle par une implémentation utilisant
+# matplotlib. Cette adaptation conserve l’API de base de Turtle (Screen,
+# Turtle, done, etc.) afin que le reste du code puisse rester inchangé. Les
+# appels de dessin sont traduits en primitives matplotlib : lignes, polygones
+# et texte. Les arcs (via `circle`) sont approximés par un ensemble de
+# segments droits. La scène est construite sur un unique objet `axes` et
+# affichée à la fin via `plt.show()`.
+
+class _MplScreen:
+    """Un substitut minimal pour `turtle.Screen` basé sur matplotlib."""
+
+    def __init__(self):
+        # Création de la figure et de l’axe ; aspect égal pour préserver les
+        # proportions. La taille de la figure sera ajustée via `setup()` si
+        # nécessaire.
+        self.fig, self.ax = plt.subplots()
+        self.ax.set_aspect('equal')
+        # On cache les axes pour un rendu proche de Turtle.
+        self.ax.axis('off')
+
+    def setup(self, width=None, height=None):
+        """Ajuste la taille de la fenêtre (en pixels) si fournie."""
+        try:
+            # Les valeurs passées à setup sont des pixels ; matplotlib
+            # travaille en pouces. En divisant par 100 on obtient une taille
+            # raisonnable pour l’affichage, sans dépendre des DPI.
+            if width and height:
+                self.fig.set_size_inches(width / 100.0, height / 100.0)
+        except Exception:
+            pass
+
+    def title(self, text):
+        """Définit le titre de la figure (équivalent de `screen.title`)."""
+        self.fig.suptitle(text)
+
+    def screensize(self, width=None, height=None):
+        """Compatibilité avec l’API turtle ; ne fait rien ici."""
+        # Optionnellement, on pourrait redimensionner la figure, mais cela est
+        # généralement géré via `setup()`.
+        pass
+
+    def setworldcoordinates(self, llx, lly, urx, ury):
+        """Configure les limites de l’axe et inverse l’axe Y pour imiter turtle."""
+        # Dans Turtle, l’axe Y croît vers le haut. Matplotlib a par défaut l’axe Y
+        # qui croît vers le haut aussi ; cependant, pour correspondre à
+        # `screen.setworldcoordinates`, on inverse l’axe Y afin que le y=0 de
+        # Turtle soit aligné en bas de l’écran (origine en bas à gauche).
+        self.ax.set_xlim(llx, urx)
+        # On inverse l’axe des ordonnées pour correspondre au repère de Turtle
+        self.ax.set_ylim(ury, lly)
+
+    def tracer(self, flag=True):
+        """Compatibilité : Turtle permet d’activer/désactiver le rafraîchissement.
+        Ici, cette méthode n’a pas d’effet car matplotlib gère le dessin en
+        différé."""
+        pass
+
+    def update(self):
+        """Forces a redraw of the canvas (no-op for matplotlib)."""
+        try:
+            self.fig.canvas.draw()
+        except Exception:
+            pass
+
+    def bye(self):
+        """Ferme la figure (analogue de `turtle.bye`)."""
+        plt.close(self.fig)
+
+
+class _MplTurtle:
+    """Substitut de `turtle.Turtle` utilisant matplotlib pour le rendu."""
+
+    def __init__(self, screen):
+        self.screen = screen
+        self.ax = screen.ax
+        # Position courante
+        self.x = 0.0
+        self.y = 0.0
+        # Orientation (0 degrés vers la droite, comme Turtle)
+        self.heading = 0.0
+        # État du stylo et attributs
+        self.is_down = False
+        self.pen_color = 'black'
+        self.fill_color = None
+        self.pen_size = 1
+        # Gestion des formes remplies
+        self.is_filling = False
+        self.fill_points = []
+
+    # --- Contrôle du stylo ---
+    def penup(self):
+        self.is_down = False
+
+    def pendown(self):
+        self.is_down = True
+
+    # Alias utilisés dans ce code
+    up = penup
+    down = pendown
+
+    # --- Paramétrage du stylo ---
+    def pensize(self, size):
+        self.pen_size = size
+
+    def pencolor(self, color):
+        # Accepte aussi les tuples RGB/HTML (#hex)
+        self.pen_color = color
+
+    def fillcolor(self, color):
+        self.fill_color = color
+
+    # --- Déplacement ---
+    def goto(self, x, y):
+        x = float(x)
+        y = float(y)
+        if self.is_down:
+            if self.is_filling:
+                # En mode remplissage, on stocke uniquement les points
+                self.fill_points.append((x, y))
+            else:
+                # Ligne simple
+                self.ax.plot([self.x, x], [self.y, y], color=self.pen_color,
+                             linewidth=self.pen_size)
+        # Mise à jour de la position
+        self.x, self.y = x, y
+
+    def forward(self, distance):
+        # Avance selon l’orientation actuelle
+        rad = math.radians(self.heading)
+        new_x = self.x + distance * math.cos(rad)
+        new_y = self.y + distance * math.sin(rad)
+        self.goto(new_x, new_y)
+
+    # Alias fd pour compatibilité éventuelle
+    fd = forward
+
+    def setheading(self, angle):
+        self.heading = angle % 360
+
+    def left(self, angle):
+        self.heading = (self.heading + angle) % 360
+
+    def right(self, angle):
+        self.heading = (self.heading - angle) % 360
+
+    # --- Remplissage ---
+    def begin_fill(self):
+        # Démarre un nouveau chemin de remplissage à la position courante
+        self.is_filling = True
+        self.fill_points = [(self.x, self.y)]
+
+    def end_fill(self):
+        if self.is_filling and len(self.fill_points) >= 3:
+            # Ferme la forme et l’ajoute à l’axe
+            polygon = mpatches.Polygon(
+                self.fill_points,
+                closed=True,
+                edgecolor=self.pen_color,
+                facecolor=self.fill_color if self.fill_color else 'none',
+                linewidth=self.pen_size,
+            )
+            self.ax.add_patch(polygon)
+        # Réinitialise l’état de remplissage
+        self.is_filling = False
+        self.fill_points = []
+
+    # --- Texte ---
+    def write(self, text, align="left", font=("Arial", 10, "normal")):
+        # Alignement horizontal
+        ha_map = {
+            "left": "left",
+            "center": "center",
+            "right": "right",
+        }
+        ha = ha_map.get(align, "left")
+        # Taille et poids de police
+        fontsize = 10
+        weight = 'normal'
+        if isinstance(font, (list, tuple)):
+            if len(font) > 1:
+                fontsize = font[1]
+            if len(font) > 2 and isinstance(font[2], str):
+                if 'bold' in font[2].lower():
+                    weight = 'bold'
+        # Ajoute le texte ; va='center' pour un alignement vertical proche de Turtle
+        self.ax.text(self.x, self.y, text, ha=ha, va='center', fontsize=fontsize,
+                     fontweight=weight, color=self.pen_color)
+
+    # --- Arcs et cercles ---
+    def circle(self, radius, extent=None):
+        """Trace un arc de cercle centré à gauche du sens de déplacement pour radius>0.
+        L’argument extent (en degrés) définit l’angle balayé (360 par défaut).
+        L’implémentation approxime l’arc par segments linéaires.
+        """
+        # Par défaut, un cercle complet
+        if extent is None:
+            extent = 360
+        # Convertit radius en longueur positive et détermine la position du centre
+        r = float(radius)
+        # Calcul de la position du centre du cercle selon Turtle
+        if r >= 0:
+            cx = self.x + r * math.cos(math.radians(self.heading + 90))
+            cy = self.y + r * math.sin(math.radians(self.heading + 90))
+            theta_start = math.radians(self.heading - 90)
+        else:
+            r = abs(r)
+            cx = self.x + r * math.cos(math.radians(self.heading - 90))
+            cy = self.y + r * math.sin(math.radians(self.heading - 90))
+            theta_start = math.radians(self.heading + 90)
+        # Nombre de segments pour l’approximation ; plus denses pour des arcs plus longs
+        steps = max(int(abs(extent)), 1)
+        step_angle = math.radians(extent) / steps
+        for i in range(1, steps + 1):
+            theta = theta_start + step_angle * i
+            x_new = cx + r * math.cos(theta)
+            y_new = cy + r * math.sin(theta)
+            self.goto(x_new, y_new)
+        # Mise à jour de l’orientation finale
+        self.heading = (self.heading + extent) % 360
+
+    # --- Divers ---
+    def hideturtle(self):
+        """Compatibilité : ne dessine rien, car il n’y a pas de curseur."""
+        pass
+
+    def speed(self, *args, **kwargs):
+        """Ignoré : la vitesse n’a pas d’importance avec matplotlib."""
+        pass
+
+
+class _TurtleModule:
+    """Objet qui remplace le module `turtle` et fournit les classes Screen
+    et Turtle, ainsi qu’une méthode done() pour afficher le résultat."""
+
+    def __init__(self):
+        self._screen = None
+
+    def Screen(self):
+        if self._screen is None:
+            self._screen = _MplScreen()
+        return self._screen
+
+    def Turtle(self):
+        # Chaque nouvel objet Turtle partage le même écran
+        return _MplTurtle(self.Screen())
+
+    def done(self):
+        """Affiche la figure et bloque jusqu’à fermeture de la fenêtre."""
+        # Si aucun écran n’a été créé, on crée tout de même une figure vide
+        scr = self._screen or _MplScreen()
+        # S’assure que l’aspect reste égal et affiche le dessin
+        scr.ax.set_aspect('equal')
+        plt.show()
+
+
+# Instancie le module Turtle. Toutes les références à `turtle.Screen`,
+# `turtle.Turtle` et `turtle.done` dans le reste du code pointeront vers
+# cette implémentation basée sur matplotlib.
+turtle = _TurtleModule()
 
 # =========================
 # Réglages / constantes
@@ -335,6 +449,8 @@ FONT_CUSHION    = ("Arial", 9,  "bold")   # tailles des coussins + "70x30"
 FONT_DIM        = ("Arial", 10, "bold")   # flèches d’encombrement
 FONT_LEGEND     = ("Arial", 10, "normal") # texte de légende
 FONT_TITLE      = ("Arial", 12, "bold")   # titre "Canapé en U …"
+# Slightly smaller font for backrest thickness labels
+FONT_DOSSIER    = ("Arial", 8, "bold")
 LEGEND_BOX_PX   = 14
 LEGEND_GAP_PX   = 6
 TITLE_MARGIN_PX = 28  # marge sous le bord haut du dessin
@@ -766,6 +882,10 @@ def _wrap_text(text, max_len=28):
 
 def draw_title_center(t, tr, tx_cm, ty_cm, text):
     """Titre centré en haut de la scène, à l’intérieur de l’espace visible."""
+    # Suppression du titre : cette fonction retourne immédiatement pour
+    # éviter d'afficher un titre. Toutes les instructions suivantes
+    # sont désormais ignorées.
+    return
     left = tr.left_px; bottom = tr.bottom_px
     right = left + tx_cm*tr.scale; top = bottom + ty_cm*tr.scale
     cx = (left + right)/2.0
@@ -780,6 +900,10 @@ def draw_legend(t, tr, tx_cm, ty_cm, items=None, pos="top-right"):
     Légende avec items = [(label, hex, name), ...]
       - pos: "top-right" (par défaut) ou "top-center" (pour U afin d'éviter recouvrement)
     """
+    # Suppression de la légende : cette fonction retourne immédiatement pour
+    # éviter d'afficher une légende. Toutes les instructions suivantes
+    # sont désormais ignorées.
+    return
     left = tr.left_px; bottom = tr.bottom_px
     right = left + tx_cm*tr.scale; top = bottom + ty_cm*tr.scale
 
@@ -1884,7 +2008,11 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
-    for poly in polys["dossiers"]: label_poly(t,tr,poly,"10")
+    # Label only the first non-degenerate backrest with its thickness (10 cm)
+    for poly in polys["dossiers"]:
+        if _poly_has_area(poly):
+            label_poly(t, tr, poly, "10", font=FONT_DOSSIER)
+            break
     for poly in polys["accoudoirs"]: label_poly(t,tr,poly,"15")
 
     # ===== COUSSINS =====
@@ -2220,6 +2348,17 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
+
+    # After labeling the banquettes, annotate the backrests and armrests
+    # with their respective thicknesses.  Using “10cm” instead of just
+    # “10” makes the unit explicit on the U2F variant as well.
+    for p in polys["dossiers"]:
+        if _poly_has_area(p):
+            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
+            break
+    for p in polys["accoudoirs"]:
+        if _poly_has_area(p):
+            label_poly(t, tr, p, "15")
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
@@ -3058,10 +3197,13 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
+    # Label only the first dossier with non-zero area.  Use “10cm” to
+    # explicitly indicate the backrest thickness.
     for p in polys["dossiers"]:
-        xs=[pp[0] for pp in p]; ys=[pp[1] for pp in p]
-        if (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9):
-            label_poly(t,tr,p,"10")
+        xs = [pp[0] for pp in p]; ys = [pp[1] for pp in p]
+        if (max(xs) - min(xs) > 1e-9) and (max(ys) - min(ys) > 1e-9):
+            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
+            break
     for p in polys["accoudoirs"]:
         xs=[pp[0] for pp in p]; ys=[pp[1] for pp in p]
         if (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9):
@@ -3631,7 +3773,11 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
         else:
             label_poly(t, tr, poly, text)
 
-    for p in polys["dossiers"]:   label_poly(t,tr,p,"10")
+    # Annotate only the first backrest to avoid repeating “10cm” on every piece
+    for p in polys["dossiers"]:
+        if _poly_has_area(p):
+            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
+            break
     for p in polys["accoudoirs"]: label_poly(t,tr,p,"15")
 
     # ===== COUSSINS =====
@@ -5062,9 +5208,11 @@ def _render_common_U(
             label_poly(t, tr, poly, text)
 
     # Label backs and armrests
+    # Annotate only the first non-degenerate backrest with its thickness
     for p in polys["dossiers"]:
         if _poly_has_area(p):
-            label_poly(t, tr, p, "10")
+            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
+            break
     for p in polys["accoudoirs"]:
         if _poly_has_area(p):
             label_poly(t, tr, p, "15")
@@ -5846,8 +5994,11 @@ def render_Simple1(tx,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
+    # Annotate only the first non-degenerate backrest with its thickness
     for p in polys["dossiers"]:
-        if _poly_has_area(p): label_poly(t, tr, p, "10")
+        if _poly_has_area(p):
+            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
+            break
     for p in polys["accoudoirs"]:
         if _poly_has_area(p): label_poly(t, tr, p, "15")
 
