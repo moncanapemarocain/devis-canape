@@ -1,7 +1,7 @@
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from io import BytesIO
@@ -30,9 +30,12 @@ IMAGE_FILES = {
 }
 
 
-def generer_pdf_devis(config, prix_details, schema_image=None):
+def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=None, reduction_ttc=0.0):
     """
-    Génère un PDF de devis (1 page) avec un pied de page fixe en bas et des images de mousse.
+    Génère un PDF de devis. La première page contient le résumé et le schéma, la seconde page
+    (facultative) présente un tableau détaillé des éléments et des prix. Une remise TTC peut
+    être indiquée et sera visible sur les deux pages. Un pied de page fixe est ajouté à
+    chaque page.
     """
     buffer = BytesIO()
     
@@ -240,14 +243,49 @@ def generer_pdf_devis(config, prix_details, schema_image=None):
 
     elements.append(Spacer(1, 0.5*cm))
 
-    # 4. PRIX
+
+    # 4. PRIX ET REMISE
     montant_ttc = f"{prix_details['total_ttc']:.2f} €"
     elements.append(Paragraph(f"PRIX TOTAL TTC : {montant_ttc}", price_style))
+    # Affichage éventuel de la remise TTC sur la première page
+    if reduction_ttc and float(reduction_ttc) > 0:
+        elements.append(Paragraph(f"Remise TTC : -{float(reduction_ttc):.2f} €", header_info_style))
     elements.append(Paragraph("<hr width='100%' color='black'/>", styles['Normal']))
 
     
-    # GÉNÉRATION AVEC CALLBACK POUR LE FOOTER
-    doc.build(elements, onFirstPage=draw_footer)
+    # Si un tableau de détails est fourni, ajouter une seconde page avec le tableau
+    if breakdown_rows:
+        elements.append(PageBreak())
+        # Titre de la page du tableau
+        elements.append(Paragraph("Détail du devis", title_style))
+        elements.append(Spacer(1, 0.3*cm))
+        # Construction du tableau pour la seconde page
+        table_data = [["Élément", "Quantité", "Prix"]]
+        for row in breakdown_rows:
+            table_data.append(list(row))
+        # Définir largeur des colonnes : diviser largeur disponible (doc.width)
+        col_widths = [8*cm, 4*cm, 5*cm]
+        detail_table = Table(table_data, colWidths=col_widths)
+        # Style du tableau : bordures fines, alignements et mise en évidence de la livraison et du total
+        style_commands = [
+            ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
+            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+            ('ALIGN', (1,1), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]
+        # Recherche des indices pour les lignes spéciales
+        for idx, row in enumerate(breakdown_rows, start=1):
+            element = str(row[0])
+            if "Livraison" in element:
+                style_commands.append(('FONTNAME', (0, idx), (-1, idx), BASE_FONT + '-Bold'))
+            if element.startswith("Total TTC"):
+                style_commands.append(('BACKGROUND', (0, idx), (-1, idx), colors.whitesmoke))
+                style_commands.append(('FONTNAME', (0, idx), (-1, idx), BASE_FONT + '-Bold'))
+        detail_table.setStyle(TableStyle(style_commands))
+        elements.append(detail_table)
+
+    # GÉNÉRATION AVEC CALLBACK POUR LE FOOTER SUR TOUTES LES PAGES
+    doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     buffer.seek(0)
     return buffer
 
