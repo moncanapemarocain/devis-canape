@@ -1,263 +1,273 @@
-def _format_valise_counts_console(sizes, counts, total):
-    """
-    AgrÃ¨ge les quantitÃ©s par dimension pour l'affichage console des coussins *valise*.
-    Exemple : "4x86 / 3x83 / 3x81 - total 10".
-    `sizes` : dict {"bas":int,"gauche":int,"droite":int (optionnel)}
-    `counts`: dict mÃªme clÃ©s -> quantitÃ©s posÃ©es par cÃ´tÃ©.
-    """
-    from collections import defaultdict
-    agg = defaultdict(int)
-    for side, size in sizes.items():
-        if side in counts and counts[side] > 0:
-            agg[size] += counts[side]
-    if not agg:
-        return f"- total {total}"
-    parts = [f"{n}x{sz}" for sz, n in sorted(agg.items(), key=lambda kv: (-kv[0], -kv[1]))]
-    return " / ".join(parts) + f" - total {total}"
-
-
-# -*- coding: utf-8 -*-
-# canape_complet_v6_palette_legende_U.py
-# Base validÃ©e + ajouts :
-#   - Choix des couleurs par noms FR (gris, beige, gris foncÃ©/foncÃ©e, taupe, crÃ¨me, etc.) ou #hex
-#   - PrÃ©rÃ©glage demandÃ© : accoudoirs=gris ; dossiers=gris (plus clair) ;
-#                          assises=gris trÃ¨s clair (presque blanc) ; coussins=taupe
-#   - Dossiers automatiquement un ton plus clair que accoudoirs si non prÃ©cisÃ©
-#   - LÃ©gende "U" dÃ©placÃ©e en haut-centrÃ© (hors canapÃ©) ; autres : haut-droite
-#   - LÃ©gende affiche la couleur choisie ("Dossier (gris clair)", etc.)
-#   - Correctifs nommage 'coussins_count' -> 'cushions_count'
+"""
+Matplotlib-based version of canapefullv77.
+Automatically generated from the original turtle-based version.
+"""
 
 import math
 import unicodedata
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon
-import types
+from matplotlib.patches import Polygon, Rectangle
+from matplotlib.collections import PatchCollection
 
-# =========================
-# Adapteur "turtle" -> Matplotlib
-# =========================
 
-_current_screen = None
-
-class _Screen:
-    def __init__(self):
-        global _current_screen
+class _MplScreen:
+    def __init__(self, width=900, height=700):
+        self.width = width
+        self.height = height
         self.fig, self.ax = plt.subplots()
-        self.ax.set_aspect('equal', adjustable='box')
-        self.width = None
-        self.height = None
-        _current_screen = self
+        # Hide axes by default; the original turtle canvas has no axes.
+        self.ax.set_axis_off()
+        # Make this axes the current one for pyplot helpers.
+        plt.sca(self.ax)
 
     def setup(self, width, height):
-        """Approxime turtle.Screen().setup(width,height)."""
-        self.width, self.height = float(width), float(height)
-        # conversion trÃ¨s simple pixels -> pouces
-        try:
-            self.fig.set_size_inches(self.width / 100.0, self.height / 100.0)
-        except Exception:
-            pass
-        # on centre la scÃ¨ne sur (0,0), comme turtle
-        half_w = self.width / 2.0
-        half_h = self.height / 2.0
-        self.ax.set_xlim(-half_w, half_w)
-        self.ax.set_ylim(-half_h, half_h)
-        self.ax.axis('off')
+        # Keep requested logical size; matplotlib sizing is handled by the GUI backend.
+        self.width = width
+        self.height = height
 
-    def title(self, text):
-        try:
-            self.fig.suptitle(text)
-        except Exception:
-            pass
+    def title(self, txt):
+        self.fig.suptitle(str(txt))
 
     def tracer(self, flag):
-        # UtilisÃ© uniquement pour accÃ©lÃ©rer le rendu dans turtle.
-        # Avec Matplotlib on ne s'en sert pas : mÃ©thode factice pour compatibilitÃ©.
+        # turtle.tracer controls animation; not needed here.
         pass
 
 
-class _Turtle:
+class _MplTurtle:
     def __init__(self, visible=True):
-        global _current_screen
-        if _current_screen is None:
-            _current_screen = _Screen()
-        self.screen = _current_screen
-        self.ax = self.screen.ax
-        self.x = 0.0
-        self.y = 0.0
-        # 0Â° vers la droite, positif = anti-horaire (comme turtle)
-        self.heading = 0.0
-        self.pen_down = True
-        self.linewidth = 1.0
-        self.pencolor_value = "black"
-        self.fillcolor_value = "black"
-        self.is_filling = False
-        self.fill_path = []
-        # "visible" ignorÃ© : on ne dessine jamais la tortue elle-mÃªme.
+        # Always draw in the current axes.
+        self.ax = plt.gca()
+        self._x = 0.0
+        self._y = 0.0
+        self._heading = 0.0  # degrees, 0 -> +X
+        self._pendown = False
+        self._pencolor = "black"
+        self._fillcolor = None
+        self._linewidth = 1.0
+        self._fill_path = None
 
-    # --- Gestion du stylo ---
+    # Basic state helpers
     def up(self):
-        self.pen_down = False
+        self._pendown = False
 
     def down(self):
-        self.pen_down = True
+        self._pendown = True
+        if self._fill_path is not None and not self._fill_path:
+            self._fill_path.append((self._x, self._y))
 
-    # alias turtle
-    def penup(self):
-        self.up()
+    def pensize(self, width):
+        self._linewidth = width
 
-    def pendown(self):
-        self.down()
+    def pencolor(self, color):
+        self._pencolor = color
 
-    def pensize(self, w):
-        self.linewidth = float(w)
+    def fillcolor(self, color):
+        self._fillcolor = color
 
-    def pencolor(self, c):
-        self.pencolor_value = c
-
-    def fillcolor(self, c):
-        self.fillcolor_value = c
-
-    # --- Orientation / dÃ©placement ---
-    def setheading(self, angle):
-        self.heading = float(angle)
-
+    # Movement
     def goto(self, x, y):
-        x = float(x)
-        y = float(y)
-        if self.pen_down:
-            self.ax.plot([self.x, x], [self.y, y],
-                         linewidth=self.linewidth,
-                         color=self.pencolor_value)
-        if self.is_filling:
-            if not self.fill_path:
-                self.fill_path.append((self.x, self.y))
-            self.fill_path.append((x, y))
-        self.x, self.y = x, y
+        if self._pendown:
+            self.ax.plot([self._x, x], [self._y, y],
+                         linewidth=self._linewidth,
+                         color=self._pencolor)
+            if self._fill_path is not None:
+                self._fill_path.append((x, y))
+        self._x, self._y = x, y
+
+    def setheading(self, angle):
+        self._heading = float(angle)
 
     def forward(self, dist):
-        r = math.radians(self.heading)
-        nx = self.x + dist * math.cos(r)
-        ny = self.y + dist * math.sin(r)
+        rad = math.radians(self._heading)
+        nx = self._x + dist * math.cos(rad)
+        ny = self._y + dist * math.sin(rad)
         self.goto(nx, ny)
 
     def left(self, angle):
-        self.heading += float(angle)
+        self._heading += float(angle)
 
     def right(self, angle):
-        self.heading -= float(angle)
+        self._heading -= float(angle)
 
-    # --- Remplissage ---
+    # Filling
     def begin_fill(self):
-        self.is_filling = True
-        self.fill_path = [(self.x, self.y)]
+        self._fill_path = [(self._x, self._y)]
 
     def end_fill(self):
-        if self.is_filling and len(self.fill_path) >= 3:
-            poly = Polygon(self.fill_path, closed=True,
-                           facecolor=self.fillcolor_value,
-                           edgecolor=self.pencolor_value,
-                           linewidth=self.linewidth)
+        if self._fill_path:
+            poly = Polygon(self._fill_path,
+                           closed=True,
+                           facecolor=self._fillcolor if self._fillcolor else "none",
+                           edgecolor=self._pencolor,
+                           linewidth=self._linewidth)
             self.ax.add_patch(poly)
-        self.is_filling = False
-        self.fill_path = []
+        self._fill_path = None
 
-    # --- Arc de cercle (utilisÃ© pour les coins arrondis) ---
-    def circle(self, radius, extent=None, steps=None):
-        if extent is None:
-            extent = 360.0
-        extent = float(extent)
-        # nombre de segments pour approcher l'arc
-        if steps is None:
-            steps = max(4, int(abs(extent) / 5.0))
-        steps = max(1, int(steps))
+    # Text
+    def write(self, text, align="center", font=("Arial", 10, "normal")):
+        ha = {"left": "left", "center": "center", "right": "right"}.get(align, "center")
+        self.ax.text(self._x, self._y, str(text),
+                     ha=ha, va="center")
 
-        start_heading = self.heading
-        r = float(radius)
-        # centre du cercle : Ã  gauche de la tortue
-        h_rad = math.radians(start_heading)
-        cx = self.x - r * math.sin(h_rad)
-        cy = self.y + r * math.cos(h_rad)
-        phi0 = start_heading - 90.0  # angle du rayon au point de dÃ©part
-
-        xs = []
-        ys = []
-        for i in range(steps + 1):
-            phi = phi0 + extent * (i / float(steps))
-            pr = math.radians(phi)
-            x = cx + r * math.cos(pr)
-            y = cy + r * math.sin(pr)
-            xs.append(x)
-            ys.append(y)
-
-        # tracer l'arc
-        for x, y in zip(xs[1:], ys[1:]):
-            self.goto(x, y)
-
-        # nouvelle orientation de la tortue Ã  la fin de l'arc
-        self.heading = start_heading + extent
-
-    # --- Texte ---
-    def write(self, text, align="left", font=None):
-        ha = {"left": "left", "center": "center", "right": "right"}.get(align, "left")
-        kwargs = {"ha": ha, "va": "center"}
-        if font is not None:
-            # tuple de type ("Arial", 12, "bold")
-            if len(font) > 0:
-                kwargs["fontfamily"] = font[0]
-            if len(font) > 1:
-                kwargs["fontsize"] = font[1]
-            if len(font) > 2:
-                style = font[2]
-                if style in ("bold", "normal"):
-                    kwargs["fontweight"] = style
-                else:
-                    kwargs["fontstyle"] = style
-        self.ax.text(self.x, self.y, str(text), **kwargs)
-
-    # --- Autres mÃ©thodes ---
-    def speed(self, _):
-        # ignorÃ© : sans effet en Matplotlib
-        pass
-
+    # Misc. turtle API used by the original script
     def hideturtle(self):
-        # la tortue n'est jamais affichÃ©e
         pass
 
+    def speed(self, val):
+        # Animation speed is ignored in the matplotlib backend.
+        pass
 
-def _done():
-    """Ã‰quivalent de turtle.done() : affiche la figure Matplotlib."""
-    global _current_screen
-    if _current_screen is not None:
-        _current_screen.ax.set_aspect("equal", adjustable="box")
-        plt.show()
-    _current_screen = None
+    # Minimal circle implementation good enough for rounded corners
+    def circle(self, radius, extent):
+        # Approximate an arc with small forward steps.
+        steps = max(4, int(abs(extent) / 5))
+        step_angle = float(extent) / steps
+        arc_length = 2 * math.pi * abs(radius) * abs(extent) / 360.0
+        step_length = arc_length / steps if steps else 0.0
+        # Rough approximation: walk the arc while turning slightly at each step.
+        for _ in range(steps):
+            self.forward(step_length)
+            self.left(step_angle)
 
 
-turtle = types.SimpleNamespace(Screen=_Screen, Turtle=_Turtle, done=_done)
+def _mpl_done():
+    ax = plt.gca()
+    ax.set_aspect("equal", adjustable="box")
+    plt.show()
+
+
+class _TurtleShim:
+    Screen = _MplScreen
+    Turtle = _MplTurtle
+    done = staticmethod(_mpl_done)
+
+
+# Expose the shim under the name "turtle" so the original code keeps working.
+turtle = _TurtleShim()
+
+
+
+
+
+
+def _format_valise_counts_console(
+    sizes, counts, total, order=("gauche", "bas", "droite")
+):
+    """
+    Affichage console *valise* : agrège les quantités par dimension et trie selon
+    l'ordre des côtés spécifié (défaut: gauche, bas, droite).
+    Exemple : "4x86 / 3x83 / 3x81 - total 10".
+
+    Paramètres :
+      sizes  : dict {"bas":int,"gauche":int,"droite":int (optionnel)}
+      counts : dict même clés -> quantités posées par côté.
+      total  : nombre total de coussins posés.
+      order  : ordre de priorité des côtés pour le tri (tuple/list).
+    """
+    from collections import defaultdict
+
+    # Dans certains cas, best["counts"] peut ne pas exister ; counts peut être None.
+    if counts is None:
+        counts = {}
+
+    # 1) Agrégation par dimension : somme des coussins pour chaque taille.
+    agg = defaultdict(int)
+    for side, size in sizes.items():
+        c = counts.get(side, 0)
+        if c > 0:
+            agg[size] += c
+
+    # Si aucun coussin, on affiche juste le total.
+    if not agg:
+        return f"- total {total}"
+
+    # 2) Déterminer pour chaque dimension le premier côté qui l'utilise,
+    #    selon l'ordre de priorité indiqué. Ce côté servira à trier les tailles.
+    side_index = {side: i for i, side in enumerate(order)}
+    first_side_for_size = {}
+    for side in order:
+        size = sizes.get(side)
+        if size is None:
+            continue
+        if counts.get(side, 0) > 0 and size not in first_side_for_size:
+            first_side_for_size[size] = side_index.get(side, len(order))
+
+    # 3) Tri des couples (taille, quantité) :
+    #    d'abord par index de côté prioritaire, puis par taille décroissante.
+    def sort_key(item):
+        size, _ = item
+        return (first_side_for_size.get(size, len(order)), -size)
+
+    parts = [
+        f"{n}x{sz}"
+        for sz, n in sorted(agg.items(), key=sort_key)
+    ]
+    return " / ".join(parts) + f" - total {total}"
+
+# -------------------------------------------------------------------------
+# Comptage pondéré des dossiers
+# -------------------------------------------------------------------------
+
+def _compute_dossiers_count(polys):
+    """
+    Calcule un nombre pondéré de dossiers en fonction de leur longueur.
+    Chaque dossier de longueur > 110 cm compte pour 1, et chaque dossier
+    de longueur <= 110 cm compte pour 0,5.
+
+    Parameters:
+        polys (dict): dictionnaire contenant notamment la clé 'dossiers'
+                      avec une liste de polygones représentant les dossiers.
+    Returns:
+        float: le nombre total pondéré de dossiers.
+    """
+    total = 0.0
+    for p in polys.get("dossiers", []):
+        # p est une liste de coordonnées (x,y)
+        xs = [pt[0] for pt in p]
+        ys = [pt[1] for pt in p]
+        length = max(max(xs) - min(xs), max(ys) - min(ys))
+        if length <= 110:
+            total += 0.5
+        else:
+            total += 1.0
+    return total
+
+
+# -*- coding: utf-8 -*-
+# canape_complet_v6_palette_legende_U.py
+# Base validée + ajouts :
+#   - Choix des couleurs par noms FR (gris, beige, gris foncé/foncée, taupe, crème, etc.) ou #hex
+#   - Préréglage demandé : accoudoirs=gris ; dossiers=gris (plus clair) ;
+#                          assises=gris très clair (presque blanc) ; coussins=taupe
+#   - Dossiers automatiquement un ton plus clair que accoudoirs si non précisé
+#   - Légende "U" déplacée en haut-centré (hors canapé) ; autres : haut-droite
+#   - Légende affiche la couleur choisie ("Dossier (gris clair)", etc.)
+#   - Correctifs nommage 'coussins_count' -> 'cushions_count'
+
 
 # =========================
-# RÃ©glages / constantes
+# Réglages / constantes
 # =========================
-WIN_W, WIN_H       = 1400, 1100
-PAD_PX             = 80
-ZOOM               = 0.90
-LINE_WIDTH         = 3
+WIN_W, WIN_H       = 900, 700
+PAD_PX             = 60
+ZOOM               = 0.85
+LINE_WIDTH         = 2
 
-# ========= PALETTE / THÃˆME =========
-# Couleurs par dÃ©faut, selon la demande :
+# ========= PALETTE / THÈME =========
+# Couleurs par défaut, selon la demande :
 # - accoudoirs = gris (moyen)
 # - dossiers = gris (un ton plus clair)
-# - assises/banquettes = gris trÃ¨s clair (presque blanc)
+# - assises/banquettes = gris très clair (presque blanc)
 # - coussins = taupe
-# NB : Ces valeurs seront Ã©ventuellement Ã©crasÃ©es Ã  chaque render_* via _resolve_and_apply_colors()
-COLOR_ASSISE       = "#f6f6f6"  # gris trÃ¨s clair / presque blanc
+# NB : Ces valeurs seront éventuellement écrasées à chaque render_* via _resolve_and_apply_colors()
+COLOR_ASSISE       = "#f6f6f6"  # gris très clair / presque blanc
 COLOR_ACC          = "#8f8f8f"  # gris
 COLOR_DOSSIER      = "#b8b8b8"  # gris plus clair que accoudoirs
 COLOR_CUSHION      = "#8B7E74"  # taupe
 COLOR_CONTOUR      = "black"
 
-# (ConservÃ©s mais non utilisÃ©s car quadrillage/repÃ¨res supprimÃ©s)
+# (Conservés mais non utilisés car quadrillage/repères supprimés)
 GRID_MINOR_STEP    = 10
 GRID_MAJOR_STEP    = 50
 COLOR_GRID_MINOR   = "#f0f0f0"
@@ -272,10 +282,10 @@ CUSHION_DEPTH      = 15
 
 # *** Seuil strict de scission ***
 MAX_BANQUETTE      = 250
-SPLIT_THRESHOLD    = 250  # scission dÃ¨s que longueur > 250 (aucune tolÃ©rance)
+SPLIT_THRESHOLD    = 250  # scission dès que longueur > 250 (aucune tolérance)
 
 # --- Coins arrondis coussins ---
-CUSHION_ROUND_R_CM = 3.0  # rayon ~3 cm, lÃ©ger
+CUSHION_ROUND_R_CM = 3.0  # rayon ~3 cm, léger
 
 # --- Traversins (bolsters) ---
 TRAVERSIN_LEN   = 70     # longueur selon la profondeur
@@ -284,13 +294,13 @@ COLOR_TRAVERSIN = "#e0d9c7"
 
 def _segment_x_limits(pts, a_key, b_key):
     """
-    Retourne (x_min, x_max, y) pour le segment horizontal dÃ©fini par deux
-    points partageant le mÃªme y (ex.: Byâ€“By2 ou By3â€“By4).
+    Retourne (x_min, x_max, y) pour le segment horizontal défini par deux
+    points partageant le même y (ex.: By–By2 ou By3–By4).
     """
     ax, ay = pts[a_key]
     bx, by = pts[b_key]
-    # Par sÃ©curitÃ© on ne s'appuie pas sur un Ã©ventuel By_ / By4_ (mÃ©ridienne)
-    # â†’ l'appelant fournit explicitement By/By2/By3/By4.
+    # Par sécurité on ne s'appuie pas sur un éventuel By_ / By4_ (méridienne)
+    # → l'appelant fournit explicitement By/By2/By3/By4.
     x0 = min(ax, bx)
     x1 = max(ax, bx)
     y  = ay  # ay == by par construction
@@ -298,15 +308,15 @@ def _segment_x_limits(pts, a_key, b_key):
 
 def _clamp_to_segment(x0, length, seg_min, seg_max, align="start"):
     """
-    Calcule [X0, X1] pour une brique de 'length' posÃ©e DANS [seg_min, seg_max].
-    - align='start'  â†’ coller au dÃ©but du segment (gauche)
-    - align='end'    â†’ coller Ã  la fin   du segment (droite)
+    Calcule [X0, X1] pour une brique de 'length' posée DANS [seg_min, seg_max].
+    - align='start'  → coller au début du segment (gauche)
+    - align='end'    → coller à la fin   du segment (droite)
     """
     length = max(0.0, float(length))
     if align == "start":
         X0 = max(seg_min, min(x0, seg_max))
         X1 = min(seg_max, X0 + length)
-        # Si la longueur excÃ¨de le segment, on se borne au segment complet
+        # Si la longueur excède le segment, on se borne au segment complet
         if X1 - X0 < length:
             X0 = seg_min
             X1 = min(seg_max, seg_min + length)
@@ -318,19 +328,20 @@ def _clamp_to_segment(x0, length, seg_min, seg_max, align="start"):
             X0 = max(seg_min, seg_max - length)
     return X0, X1
 
-# --- Polices / lÃ©gende / titres (lisibilitÃ© accrue) ---
-FONT_LABEL      = ("Arial", 16, "bold")   # libellÃ©s banquettes/dossiers/accoudoirs
-FONT_CUSHION    = ("Arial", 15, "bold")   # tailles des coussins + "70x30"
-FONT_DIM        = ("Arial", 16, "bold")   # flÃ¨ches dâ€™encombrement
-FONT_LEGEND     = ("Arial", 16, "normal") # texte de lÃ©gende
-FONT_TITLE      = ("Arial", 18, "bold")   # titre "CanapÃ© en U â€¦"
-LEGEND_BOX_PX   = 18
-LEGEND_GAP_PX   = 8
-TITLE_MARGIN_PX = 36  # marge sous le bord haut du dessin
+# --- Polices / légende / titres (lisibilité accrue) ---
+# Réduction légère des tailles de police pour une meilleure lisibilité
+FONT_LABEL      = ("Arial", 10, "bold")   # libellés banquettes/dossiers/accoudoirs
+FONT_CUSHION    = ("Arial", 9,  "bold")   # tailles des coussins + "70x30"
+FONT_DIM        = ("Arial", 10, "bold")   # flèches d’encombrement
+FONT_LEGEND     = ("Arial", 10, "normal") # texte de légende
+FONT_TITLE      = ("Arial", 12, "bold")   # titre "Canapé en U …"
+LEGEND_BOX_PX   = 14
+LEGEND_GAP_PX   = 6
+TITLE_MARGIN_PX = 28  # marge sous le bord haut du dessin
 
-# --- SÃ©curitÃ© d'affichage pour la lÃ©gende ---
-LEGEND_SAFE_PX = 16   # distance minimale entre la lÃ©gende et le schÃ©ma (px)
-LEGEND_EDGE_PX = 10   # marge minimale par rapport aux bords de fenÃªtre (px)
+# --- Sécurité d'affichage pour la légende ---
+LEGEND_SAFE_PX = 16   # distance minimale entre la légende et le schéma (px)
+LEGEND_EDGE_PX = 10   # marge minimale par rapport aux bords de fenêtre (px)
 
 # =============================================================================
 # ================     OUTILS PALETTE / COULEURS (NOUVEAU)     ================
@@ -341,7 +352,7 @@ _BASE_COLORS = {
     "gris":   "#9e9e9e",
     "beige":  "#d8c4a8",
     "taupe":  "#8B7E74",
-    "crÃ¨me":  "#f4f1e9",
+    "crème":  "#f4f1e9",
     "creme":  "#f4f1e9",
     "blanc":  "#ffffff",
     "noir":   "#111111",
@@ -390,7 +401,7 @@ def _darken(hexcol, factor):
 
 def _apply_shade(hexcol, tokens):
     """
-    tokens: contient Ã©ventuellement 'clair', 'tres clair', 'fonce', 'tres fonce', 'presque blanc'
+    tokens: contient éventuellement 'clair', 'tres clair', 'fonce', 'tres fonce', 'presque blanc'
     """
     t = ' '.join(tokens)
     t_norm = _norm(t)
@@ -408,14 +419,14 @@ def _apply_shade(hexcol, tokens):
 
 def _pretty_shade(tokens):
     t = _norm(' '.join(tokens))
-    t = t.replace("tres", "trÃ¨s")
-    t = t.replace("fonce", "foncÃ©")
+    t = t.replace("tres", "très")
+    t = t.replace("fonce", "foncé")
     return t
 
 def _parse_color_value(val):
     """
-    Convertit un nom FR (Ã©vent. qualifiÃ©) ou un #hex en (#hex, nom jolis mots ou None)
-    Ex : "gris foncÃ©" -> (#..., "gris foncÃ©")
+    Convertit un nom FR (évent. qualifié) ou un #hex en (#hex, nom jolis mots ou None)
+    Ex : "gris foncé" -> (#..., "gris foncé")
          "#c0ffee"    -> ("#c0ffee", None)
     """
     if val is None:
@@ -456,8 +467,8 @@ def _parse_color_value(val):
 
 def _parse_couleurs_argument(couleurs):
     """
-    Accepte dict, ou string "clÃ©:val; clÃ©:val".
-    Normalise les clÃ©s en {'accoudoirs','dossiers','assise','coussins'}
+    Accepte dict, ou string "clé:val; clé:val".
+    Normalise les clés en {'accoudoirs','dossiers','assise','coussins'}
     """
     if couleurs is None:
         return {}
@@ -486,18 +497,18 @@ def _parse_couleurs_argument(couleurs):
 
 def _resolve_and_apply_colors(couleurs):
     """
-    RÃ©sout la palette utilisateur puis applique aux variables globales:
+    Résout la palette utilisateur puis applique aux variables globales:
       COLOR_ASSISE, COLOR_ACC, COLOR_DOSSIER, COLOR_CUSHION
-    Retourne une liste d'items pour la lÃ©gende: [(libellÃ©, hex, nom)]
-    RÃ¨gle : si dossiers non spÃ©cifiÃ© mais accoudoirs oui => dossiers = accoudoirs Ã©claircis.
+    Retourne une liste d'items pour la légende: [(libellé, hex, nom)]
+    Règle : si dossiers non spécifié mais accoudoirs oui => dossiers = accoudoirs éclaircis.
     """
     global COLOR_ASSISE, COLOR_ACC, COLOR_DOSSIER, COLOR_CUSHION
 
-    # base par dÃ©faut (demande client)
+    # base par défaut (demande client)
     default = {
         "accoudoirs": "gris",
-        "dossiers":   None,  # sera Ã©clairci Ã  partir des accoudoirs si None
-        "assise":     "gris trÃ¨s clair presque blanc",
+        "dossiers":   None,  # sera éclairci à partir des accoudoirs si None
+        "assise":     "gris très clair presque blanc",
         "coussins":   "taupe",
     }
     user = _parse_couleurs_argument(couleurs)
@@ -523,7 +534,7 @@ def _resolve_and_apply_colors(couleurs):
     COLOR_ASSISE  = ass_hex
     COLOR_CUSHION = cush_hex
 
-    # Items de lÃ©gende (texte + nom de couleur si dispo)
+    # Items de légende (texte + nom de couleur si dispo)
     items = [
         ("Dossier",   COLOR_DOSSIER, dos_name),
         ("Accoudoir", COLOR_ACC,     acc_name),
@@ -533,7 +544,7 @@ def _resolve_and_apply_colors(couleurs):
     return items
 
 # =========================
-# Transform cm â†’ px (isomÃ©trique & centrÃ©)
+# Transform cm → px (isométrique & centré)
 # =========================
 class WorldToScreen:
     def __init__(self, tx_cm, ty_cm, win_w=WIN_W, win_h=WIN_H, pad_px=PAD_PX, zoom=ZOOM):
@@ -554,7 +565,7 @@ def pen_up_to(t, x, y):
     t.up(); t.goto(x, y)
 
 def _is_axis_aligned_rect(pts):
-    """DÃ©tecte un rectangle axisâ€‘alignÃ© fermÃ© (le dernier point rÃ©pÃ¨te le premier)."""
+    """Détecte un rectangle axis‑aligné fermé (le dernier point répète le premier)."""
     if not pts or len(pts) < 4:
         return False
     body = pts[:-1] if pts[0] == pts[-1] else pts
@@ -592,7 +603,7 @@ def draw_rounded_rect_cm(t, tr, x0, y0, x1, y1, r_cm=CUSHION_ROUND_R_CM,
 
 def draw_polygon_cm(t, tr, pts, fill=None, outline=COLOR_CONTOUR, width=LINE_WIDTH):
     if not pts: return
-    # Arrondi auto pour coussins rectangulaires axisâ€‘alignÃ©s
+    # Arrondi auto pour coussins rectangulaires axis‑alignés
     if fill == COLOR_CUSHION and _is_axis_aligned_rect(pts):
         xs = [x for x, _ in pts[:-1]] if pts[0] == pts[-1] else [x for x, _ in pts]
         ys = [y for _, y in pts[:-1]] if pts[0] == pts[-1] else [y for _, y in pts]
@@ -611,11 +622,11 @@ def draw_polygon_cm(t, tr, pts, fill=None, outline=COLOR_CONTOUR, width=LINE_WID
     if fill: t.end_fill()
     t.up()
 
-# (Quadrillage & repÃ¨res supprimÃ©s Ã  la demande client â†’ fonctions conservÃ©es mais non appelÃ©es)
-def draw_grid_cm(t, tr, tx, ty, step, color, width):  # non utilisÃ©
+# (Quadrillage & repères supprimés à la demande client → fonctions conservées mais non appelées)
+def draw_grid_cm(t, tr, tx, ty, step, color, width):  # non utilisé
     pass
 
-def draw_axis_labels_cm(t, tr, tx, ty, step=AXIS_LABEL_STEP, max_mark=AXIS_LABEL_MAX):  # non utilisÃ©
+def draw_axis_labels_cm(t, tr, tx, ty, step=AXIS_LABEL_STEP, max_mark=AXIS_LABEL_MAX):  # non utilisé
     pass
 
 def _unit(vx, vy):
@@ -671,9 +682,9 @@ def _rectU(x0, y0, x1, y1):
 def _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0=None, seat_y1=None):
     """
     Construit 1 ou 2 rectangles verticaux (liste de polygones) pour un dossier.
-    - [x0,x1] = Ã©paisseur du dossier (ex: 0 â†’ F0x)
-    - [y0,y1] = Ã©tendue rÃ©elle du dossier Ã  dessiner (tenue compte mÃ©ridienne)
-    - seat_y0/seat_y1 = bornes 'assise' complÃ¨tes (sans mÃ©ridienne) : si |seat_y1-seat_y0|>SPLIT_THRESHOLD
+    - [x0,x1] = épaisseur du dossier (ex: 0 → F0x)
+    - [y0,y1] = étendue réelle du dossier à dessiner (tenue compte méridienne)
+    - seat_y0/seat_y1 = bornes 'assise' complètes (sans méridienne) : si |seat_y1-seat_y0|>SPLIT_THRESHOLD
       on coupe au milieu de [seat_y0, seat_y1], mais seulement si la coupe tombe dans ]y0,y1[.
     """
     xL, xR = (min(x0, x1), max(x0, x1))
@@ -694,9 +705,9 @@ def _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0=None, seat_y1=None):
 def _build_dossier_horizontal_rects(x0, x1, y0, y1, seat_x0=None, seat_x1=None):
     """
     Construit 1 ou 2 rectangles horizontaux (liste de polygones) pour un dossier bas.
-    - [x0,x1] = Ã©tendue rÃ©elle du dossier Ã  dessiner (tenue compte mÃ©ridienne)
-    - [y0,y1] = Ã©paisseur verticale du dossier (ex: 0 â†’ F0y)
-    - seat_x0/seat_x1 = bornes 'assise' complÃ¨tes : si |seat_x1-seat_x0|>SPLIT_THRESHOLD
+    - [x0,x1] = étendue réelle du dossier à dessiner (tenue compte méridienne)
+    - [y0,y1] = épaisseur verticale du dossier (ex: 0 → F0y)
+    - seat_x0/seat_x1 = bornes 'assise' complètes : si |seat_x1-seat_x0|>SPLIT_THRESHOLD
       on coupe au milieu de [seat_x0, seat_x1], mais seulement si la coupe tombe dans ]x0,x1[.
     """
     xL, xR = (min(x0, x1), max(x0, x1))
@@ -723,10 +734,10 @@ def _assert_banquettes_max_250(polys):
     for poly in polys.get("banquettes", []):
         L, P = banquette_dims(poly)
         if L > MAX_BANQUETTE:
-            raise ValueError(f"Banquette de {L}Ã—{P} cm > {MAX_BANQUETTE} cm â€” scission supplÃ©mentaire nÃ©cessaire.")
+            raise ValueError(f"Banquette de {L}×{P} cm > {MAX_BANQUETTE} cm — scission supplémentaire nécessaire.")
 
 # =====================================================================
-# ================  Outils lÃ©gende & titres (lisibilitÃ©)  =============
+# ================  Outils légende & titres (lisibilité)  =============
 # =====================================================================
 
 def _draw_rect_px(t, x, y, w, h, fill=None, outline=COLOR_CONTOUR, width=1):
@@ -754,7 +765,7 @@ def _wrap_text(text, max_len=28):
     return lines
 
 def draw_title_center(t, tr, tx_cm, ty_cm, text):
-    """Titre centrÃ© en haut de la scÃ¨ne, Ã  lâ€™intÃ©rieur de lâ€™espace visible."""
+    """Titre centré en haut de la scène, à l’intérieur de l’espace visible."""
     left = tr.left_px; bottom = tr.bottom_px
     right = left + tx_cm*tr.scale; top = bottom + ty_cm*tr.scale
     cx = (left + right)/2.0
@@ -766,8 +777,8 @@ def draw_title_center(t, tr, tx_cm, ty_cm, text):
 
 def draw_legend(t, tr, tx_cm, ty_cm, items=None, pos="top-right"):
     """
-    LÃ©gende avec items = [(label, hex, name), ...]
-      - pos: "top-right" (par dÃ©faut) ou "top-center" (pour U afin d'Ã©viter recouvrement)
+    Légende avec items = [(label, hex, name), ...]
+      - pos: "top-right" (par défaut) ou "top-center" (pour U afin d'éviter recouvrement)
     """
     left = tr.left_px; bottom = tr.bottom_px
     right = left + tx_cm*tr.scale; top = bottom + ty_cm*tr.scale
@@ -780,7 +791,7 @@ def draw_legend(t, tr, tx_cm, ty_cm, items=None, pos="top-right"):
             ("Coussins",  COLOR_CUSHION, None),
             ("Assise",    COLOR_ASSISE,  None),
         ]
-    # Taille & position + placement "safe" (jamais sur le schÃ©ma)
+    # Taille & position + placement "safe" (jamais sur le schéma)
     box = LEGEND_BOX_PX
     gap = LEGEND_GAP_PX
     # largeur texte (un peu plus pour nom de teinte)
@@ -788,22 +799,22 @@ def draw_legend(t, tr, tx_cm, ty_cm, items=None, pos="top-right"):
     total_h = len(items) * (box) + (len(items) - 1) * gap
     total_w = box + 8 + max_text_w_px
 
-    # Dimensions du fond de lÃ©gende
+    # Dimensions du fond de légende
     legend_w = total_w + 16
     legend_h = total_h + 16
 
-    # Bords de l'Ã©cran (px)
+    # Bords de l'écran (px)
     scr_left, scr_right = -WIN_W / 2.0, WIN_W / 2.0
     scr_bottom, scr_top = -WIN_H / 2.0, WIN_H / 2.0
 
-    # Limites de la scÃ¨ne utile (schÃ©ma)
-    # (dÃ©jÃ  calculÃ©es : left, right, bottom, top)
+    # Limites de la scène utile (schéma)
+    # (déjà calculées : left, right, bottom, top)
 
-    # Espaces libres autour du schÃ©ma
+    # Espaces libres autour du schéma
     free_top = scr_top - top
     free_right = scr_right - right
     free_left = left - scr_left
-    free_bottom = bottom - scr_bottom  # pas utilisÃ© mais conservÃ© pour extensions
+    free_bottom = bottom - scr_bottom  # pas utilisé mais conservé pour extensions
 
     def _clamp(v, a, b):
         return max(a, min(b, v))
@@ -813,27 +824,27 @@ def draw_legend(t, tr, tx_cm, ty_cm, items=None, pos="top-right"):
     x0 = None; y0 = None
 
     if pos == "top-center":
-        # 1) IdÃ©al : auâ€‘dessus du schÃ©ma, centrÃ©, Ã  distance SAFE
+        # 1) Idéal : au‑dessus du schéma, centré, à distance SAFE
         if free_top >= legend_h + SAFE:
             cx = (left + right) / 2.0
             x0 = _clamp(cx - total_w / 2.0, scr_left + EDGE, scr_right - EDGE - total_w)
-            # y0 = "ligne de tÃªte" des items ; le fond ira de (y0 - total_h - 8) Ã  (y0 + 8)
+            # y0 = "ligne de tête" des items ; le fond ira de (y0 - total_h - 8) à (y0 + 8)
             y0 = min(scr_top - EDGE, top + SAFE + total_h + 8)
-        # 2) Sinon : Ã  droite du schÃ©ma
+        # 2) Sinon : à droite du schéma
         elif free_right >= legend_w + SAFE:
             x0 = min(scr_right - EDGE - total_w, right + SAFE + 8)
             y0 = min(scr_top - EDGE, top - 12)
-        # 3) Sinon : Ã  gauche du schÃ©ma
+        # 3) Sinon : à gauche du schéma
         elif free_left >= legend_w + SAFE:
             x0 = max(scr_left + EDGE, left - SAFE - total_w - 8)
             y0 = min(scr_top - EDGE, top - 12)
-        # 4) Repli ultime : en hautâ€‘centre, Ã  lâ€™intÃ©rieur (comportement dâ€™avant)
+        # 4) Repli ultime : en haut‑centre, à l’intérieur (comportement d’avant)
         else:
             cx = (left + right) / 2.0
             x0 = _clamp(cx - total_w / 2.0, left + 12, right - total_w - 12)
             y0 = top - 12
     else:
-        # pos = "top-right" â†’ on privilÃ©gie la droite, sinon le dessus, puis la gauche
+        # pos = "top-right" → on privilégie la droite, sinon le dessus, puis la gauche
         if free_right >= legend_w + SAFE:
             x0 = min(scr_right - EDGE - total_w, right + SAFE + 8)
             y0 = min(scr_top - EDGE, top - 12)
@@ -844,11 +855,11 @@ def draw_legend(t, tr, tx_cm, ty_cm, items=None, pos="top-right"):
             x0 = max(scr_left + EDGE, left - SAFE - total_w - 8)
             y0 = min(scr_top - EDGE, top - 12)
         else:
-            # Repli : ancien placement en hautâ€‘droite Ã  lâ€™intÃ©rieur
+            # Repli : ancien placement en haut‑droite à l’intérieur
             x0 = right - total_w - 12
             y0 = top - 12
 
-    # Fond (lÃ©ger)
+    # Fond (léger)
     _draw_rect_px(
         t,
         x0 - 8,
@@ -870,23 +881,23 @@ def draw_legend(t, tr, tx_cm, ty_cm, items=None, pos="top-right"):
         cur_y -= (box + gap)
 
 # =====================================================================
-# ================  COUSSINS â€” utilitaires limites mÃ©ridienne =========
+# ================  COUSSINS — utilitaires limites méridienne =========
 # =====================================================================
 
 def _lim_x(pts, key):
-    """RÃ©cupÃ¨re x dâ€™extrÃ©mitÃ© pour dessin coussins : supporte <key>, <key>_mer et <key>_."""
+    """Récupère x d’extrémité pour dessin coussins : supporte <key>, <key>_mer et <key>_."""
     if f"{key}_mer" in pts: return pts[f"{key}_mer"][0]
     if f"{key}_"   in pts: return pts[f"{key}_"][0]
     return pts[key][0]
 
 def _lim_y(pts, key):
-    """RÃ©cupÃ¨re y dâ€™extrÃ©mitÃ© pour dessin coussins : supporte <key>, <key>_mer et <key>_."""
+    """Récupère y d’extrémité pour dessin coussins : supporte <key>, <key>_mer et <key>_."""
     if f"{key}_mer" in pts: return pts[f"{key}_mer"][1]
     if f"{key}_"   in pts: return pts[f"{key}_"][1]
     return pts[key][1]
 
 # =====================================================================
-# ================  COUSSINS â€” moteur "valise" (utilitaires)  =========
+# ================  COUSSINS — moteur "valise" (utilitaires)  =========
 # =====================================================================
 
 def _parse_coussins_spec(coussins):
@@ -896,12 +907,12 @@ def _parse_coussins_spec(coussins):
       - fixed: int (si mode=fixed)
       - range: (min,max)  (si mode=valise)
       - same: bool        (si mode=valise, 'same' pour :s)
-    RÃ¨gles:
+    Règles:
       auto          -> ancien auto (65,80,90)
       entier        -> taille globale fixe (toutes branches)
-      valise        -> 60..100,  Î” global â‰¤ 5
-      p             -> 60..74,   Î” global â‰¤ 5
-      g             -> 76..100,  Î” global â‰¤ 5
+      valise        -> 60..100,  Δ global ≤ 5
+      p             -> 60..74,   Δ global ≤ 5
+      g             -> 76..100,  Δ global ≤ 5
       s             -> same global, 60..100
       p:s           -> same global, 60..74
       g:s           -> same global, 76..100
@@ -918,7 +929,7 @@ def _parse_coussins_spec(coussins):
     if base == "s":
         base = "valise"
     if base not in ("valise", "p", "g"):
-        raise ValueError(f"SpÃ©cification coussins invalide: {coussins}")
+        raise ValueError(f"Spécification coussins invalide: {coussins}")
     if base == "p":
         r = (60, 74)
     elif base == "g":
@@ -930,8 +941,8 @@ def _parse_coussins_spec(coussins):
 def _parse_traversins_spec(traversins, allowed={"g","b","d"}):
     """
     Renvoie un set parmi {'g','b','d'} selon la demande utilisateur.
-    - traversins peut Ãªtre None, 'g', 'd', 'b', 'g,d', ['g','d'], ...
-    - allowed restreint selon le type de canapÃ©.
+    - traversins peut être None, 'g', 'd', 'b', 'g,d', ['g','d'], ...
+    - allowed restreint selon le type de canapé.
     """
     if not traversins:
         return set()
@@ -961,8 +972,8 @@ def _draw_traversin_block(t, tr, x0, y0, x1, y1):
 # ----- L-like / U / S1 : placement traversins -----
 def _draw_traversins_simple_S1(t, tr, pts, profondeur, dossier, traversins):
     """
-    Traversins S1 : positionnÃ©s Ã  la fin du dossier.
-    - Si mÃ©ridienne Ã  gauche/droite, on s'aligne sur D0_m / Dx_m.
+    Traversins S1 : positionnés à la fin du dossier.
+    - Si méridienne à gauche/droite, on s'aligne sur D0_m / Dx_m.
     """
     if not traversins:
         return 0
@@ -973,12 +984,12 @@ def _draw_traversins_simple_S1(t, tr, pts, profondeur, dossier, traversins):
 
     n = 0
     if "g" in traversins:
-        # fin du dossier cÃ´tÃ© gauche
+        # fin du dossier côté gauche
         x0 = (pts["D0_m"][0] if "D0_m" in pts else (pts["D0"][0] if "D0" in pts else pts["B0"][0]))
         x1 = x0 + TRAVERSIN_THK
         _draw_traversin_block(t, tr, x0, y0, x1, y1); n += 1
     if "d" in traversins:
-        # fin du dossier cÃ´tÃ© droit
+        # fin du dossier côté droit
         x1 = (pts["Dx_m"][0] if "Dx_m" in pts else (pts["Dx"][0] if "Dx" in pts else pts["Bx"][0]))
         x0 = x1 - TRAVERSIN_THK
         _draw_traversin_block(t, tr, x0, y0, x1, y1); n += 1
@@ -987,9 +998,9 @@ def _draw_traversins_simple_S1(t, tr, pts, profondeur, dossier, traversins):
 def _draw_traversins_L_like(t, tr, pts, profondeur, traversins):
     """
     Placement des TR pour les formes 'L-like' (LNF v1/v2, LF).
-    - 'g'  (gauche, horizontal) : collÃ© sur la FIN DE BANQUETTE gauche (segment Byâ€“By2, ignorer *_mer)
-    - 'b'  (bas, vertical)      : collÃ© sur lâ€™EXTRÃ‰MITÃ‰ DE BANQUETTE (Bx2â€“Bx),
-                                  mÃªme en prÃ©sence dâ€™une mÃ©ridienne (on ignore *_mer)
+    - 'g'  (gauche, horizontal) : collé sur la FIN DE BANQUETTE gauche (segment By–By2, ignorer *_mer)
+    - 'b'  (bas, vertical)      : collé sur l’EXTRÉMITÉ DE BANQUETTE (Bx2–Bx),
+                                  même en présence d’une méridienne (on ignore *_mer)
     """
     if not traversins:
         return 0
@@ -998,22 +1009,22 @@ def _draw_traversins_L_like(t, tr, pts, profondeur, traversins):
     depth_len = min(TRAVERSIN_LEN, max(0.0, profondeur))
     n = 0
 
-    # --- Gauche (horizontal) â†’ collÃ© sur la FIN DE BANQUETTE (segment Byâ€“By2) ---
+    # --- Gauche (horizontal) → collé sur la FIN DE BANQUETTE (segment By–By2) ---
     if "g" in traversins:
-        # Coller Ã  la FIN DE BANQUETTE (segment Byâ€“By2), et ignorer toute version *_mer
+        # Coller à la FIN DE BANQUETTE (segment By–By2), et ignorer toute version *_mer
         y_end = pts["By"][1] if "By" in pts else (F0y + profondeur)
         y0 = y_end - TRAVERSIN_THK
         y1 = y_end
         _draw_traversin_block(t, tr, F0x, y0, F0x + depth_len, y1)
         n += 1
 
-    # --- Bas (vertical) â†’ FIN DE BANQUETTE (Bx2â€“Bx), pas fin de dossier ---
+    # --- Bas (vertical) → FIN DE BANQUETTE (Bx2–Bx), pas fin de dossier ---
     if "b" in traversins:
         # On force Bx/Bx2 (et surtout PAS Bx_mer) pour coller au bord de banquette
         if   "Bx"  in pts: x_end = pts["Bx"][0]
         elif "Bx2" in pts: x_end = pts["Bx2"][0]
         else:
-            # Secours (trÃ¨s improbable) : retomber sur une des anciennes clÃ©s ou un _lim
+            # Secours (très improbable) : retomber sur une des anciennes clés ou un _lim
             if   "DxR" in pts: x_end = pts["DxR"][0]
             elif "Dx2" in pts: x_end = pts["Dx2"][0]
             elif "Dx"  in pts: x_end = pts["Dx"][0]
@@ -1032,18 +1043,18 @@ def _u_right_col_x(variant, pts):
 def _draw_traversins_U_common(t, tr, variant, pts, profondeur, traversins):
     """
     U v1..v4 : traversins STRICTEMENT sur les segments de dossier internes :
-      - gauche  â†’ segment Byâ€“By2
-      - droite  â†’ segment By3â€“By4
-    On ignore toute version 'avec _' (mÃ©ridienne) et on n'utilise pas F02 ici.
+      - gauche  → segment By–By2
+      - droite  → segment By3–By4
+    On ignore toute version 'avec _' (méridienne) et on n'utilise pas F02 ici.
     """
     if not traversins:
         return 0
 
-    # Longueur du traversin posÃ©e dans le sens X (horizontal)
+    # Longueur du traversin posée dans le sens X (horizontal)
     depth_len = min(TRAVERSIN_LEN, max(0.0, float(profondeur)))
     n = 0
 
-    # --- Gauche : Byâ€“By2 (alignement au dÃ©but du segment)
+    # --- Gauche : By–By2 (alignement au début du segment)
     if "g" in traversins:
         seg_min, seg_max, y_line = _segment_x_limits(pts, "By", "By2")
         x0, x1 = _clamp_to_segment(seg_min, depth_len, seg_min, seg_max, align="start")
@@ -1052,7 +1063,7 @@ def _draw_traversins_U_common(t, tr, variant, pts, profondeur, traversins):
         _draw_traversin_block(t, tr, x0, y0, x1, y1)
         n += 1
 
-    # --- Droite : By3â€“By4 (alignement Ã  la fin du segment)
+    # --- Droite : By3–By4 (alignement à la fin du segment)
     if "d" in traversins:
         seg_min, seg_max, y_line = _segment_x_limits(pts, "By3", "By4")
         x0, x1 = _clamp_to_segment(seg_max, depth_len, seg_min, seg_max, align="end")
@@ -1066,9 +1077,9 @@ def _draw_traversins_U_common(t, tr, variant, pts, profondeur, traversins):
 def _draw_traversins_U_side_F02(t, tr, pts, profondeur, traversins):
     """
     U1F / U2f : traversins STRICTEMENT sur les segments de dossier internes :
-      - gauche  â†’ segment Byâ€“By2
-      - droite  â†’ segment By3â€“By4
-    On ignore complÃ¨tement F02 pour le placement des traversins.
+      - gauche  → segment By–By2
+      - droite  → segment By3–By4
+    On ignore complètement F02 pour le placement des traversins.
     """
     if not traversins:
         return 0
@@ -1076,7 +1087,7 @@ def _draw_traversins_U_side_F02(t, tr, pts, profondeur, traversins):
     depth_len = min(TRAVERSIN_LEN, max(0.0, float(profondeur)))
     n = 0
 
-    # --- Gauche : Byâ€“By2 (dÃ©but du segment)
+    # --- Gauche : By–By2 (début du segment)
     if "g" in traversins:
         seg_min, seg_max, y_line = _segment_x_limits(pts, "By", "By2")
         x0, x1 = _clamp_to_segment(seg_min, depth_len, seg_min, seg_max, align="start")
@@ -1085,7 +1096,7 @@ def _draw_traversins_U_side_F02(t, tr, pts, profondeur, traversins):
         _draw_traversin_block(t, tr, x0, y0, x1, y1)
         n += 1
 
-    # --- Droite : By3â€“By4 (fin du segment)
+    # --- Droite : By3–By4 (fin du segment)
     if "d" in traversins:
         seg_min, seg_max, y_line = _segment_x_limits(pts, "By3", "By4")
         x0, x1 = _clamp_to_segment(seg_max, depth_len, seg_min, seg_max, align="end")
@@ -1097,7 +1108,7 @@ def _draw_traversins_U_side_F02(t, tr, pts, profondeur, traversins):
     return n
 
 # =====================================================================
-# ================  COUSSINS â€” moteur "valise" (utilitaires)  =========
+# ================  COUSSINS — moteur "valise" (utilitaires)  =========
 # =====================================================================
 
 def _apply_traversin_limits_L_like(pts, x_end_key, y_end_key, traversins):
@@ -1175,7 +1186,7 @@ def _draw_L_like_with_sizes(t, tr, pts, sizes, shift_bas, x_end_key="Bx", y_end_
 
     return nb + ng, sb, sg
 
-# ----- U2f : Ã©valuation / dessin -----
+# ----- U2f : évaluation / dessin -----
 def _eval_U2f_counts(pts, sb, sg, sd, shiftL, shiftR, traversins=None):
     F0x, F0y = pts["F0"]
     F02x = pts["F02"][0]
@@ -1322,7 +1333,7 @@ def _draw_cushions_U2f_optimized(t, tr, pts, size, traversins=None):
         y += size; count += 1
     return count
 
-# ----- U1F : Ã©valuation / dessin -----
+# ----- U1F : évaluation / dessin -----
 def _eval_U1F_counts(pts, sb, sg, sd, shiftL, shiftR, traversins=None):
     F0x, F0y = pts["F0"]; F02x = pts["F02"][0]
     y_end_L = pts["By_cush"][1]; y_end_R = pts["By4_cush"][1]
@@ -1413,8 +1424,8 @@ def _u_variant_x_end(variant, pts):
 def _eval_U_counts(variant, pts, drawn, sb, sg, sd, shiftL, shiftR, traversins=None):
     """
     Evaluate how many cushions of sizes ``sb``, ``sg`` and ``sd`` will fit on
-    the bottom, left and right branches of a Uâ€‘shaped sofa, considering
-    possible mÃ©ridienne limits.
+    the bottom, left and right branches of a U‑shaped sofa, considering
+    possible méridienne limits.
     """
     F0x, F0y = pts["F0"]
     x_end = _u_variant_x_end(variant, pts)
@@ -1473,11 +1484,11 @@ def _draw_U_with_sizes(
     variant, t, tr, pts, sizes, drawn, shiftL, shiftR, traversins=None
 ):
     """
-    Draw cushions with specific sizes for each part of a Uâ€‘shaped sofa.
+    Draw cushions with specific sizes for each part of a U‑shaped sofa.
 
     ``sizes`` should be a dict with keys ``"bas"``, ``"gauche"`` and
     ``"droite"`` giving the cushion size for the bottom, left and right,
-    respectively. This version respects mÃ©ridienne limits via ``By_`` and
+    respectively. This version respects méridienne limits via ``By_`` and
     ``By4_`` when present and optional traversins.
     """
     F0x, F0y = pts["F0"]
@@ -1777,11 +1788,11 @@ def build_polys_LF_variant(pts, tx, ty, profondeur=DEPTH_STD,
         polys["banquettes"].append(ban_b)
 
     if dossier_left:
-        # retour gauche (inchangÃ©)
+        # retour gauche (inchangé)
         dos_g_from=[pts["D0"],pts["D0x"],pts["F0"],pts["Fy"],pts["Dy"],pts["D0"]] if dossier_bas \
             else [pts["D0y"],pts["F0"],pts["Fy"],pts["Dy"],pts["D0y"]]
         polys["dossiers"].append(dos_g_from)
-        # bande sur la banquette gauche : scindÃ©e si nÃ©cessaire
+        # bande sur la banquette gauche : scindée si nécessaire
         x0, x1 = 0, pts["F0"][0]
         y0 = pts["Dy"][1]
         y1 = pts.get("By_", pts["By"])[1]
@@ -1789,11 +1800,11 @@ def build_polys_LF_variant(pts, tx, ty, profondeur=DEPTH_STD,
         seat_y1 = pts["By"][1]
         polys["dossiers"] += _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0, seat_y1)
     if dossier_bas:
-        # retour bas (inchangÃ©)
+        # retour bas (inchangé)
         dos_b_from=[pts["D0x"],pts["Dx"],pts["Fx"],pts["F0"],pts["D0x"]] if dossier_left \
             else [pts["D0x"],pts["F0"],pts["Fx"],pts["Dx"],pts["D0x"]]
         polys["dossiers"].append(dos_b_from)
-        # bande sur la banquette bas : scindÃ©e si nÃ©cessaire
+        # bande sur la banquette bas : scindée si nécessaire
         y0, y1 = 0, pts["F0"][1]
         x0 = pts["Dx"][0]
         x1 = pts.get("Bx_", pts["Bx"])[0]
@@ -1820,11 +1831,11 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
                       coussins="auto",
                       traversins=None,
                       couleurs=None,
-                      window_title="LF â€” variantes"):
+                      window_title="LF — variantes"):
     if meridienne_side == 'g' and acc_left:
-        raise ValueError("Erreur: une mÃ©ridienne gauche ne peut pas coexister avec un accoudoir gauche.")
+        raise ValueError("Erreur: une méridienne gauche ne peut pas coexister avec un accoudoir gauche.")
     if meridienne_side == 'b' and acc_bas:
-        raise ValueError("Erreur: une mÃ©ridienne bas ne peut pas coexister avec un accoudoir bas.")
+        raise ValueError("Erreur: une méridienne bas ne peut pas coexister avec un accoudoir bas.")
 
     trv = _parse_traversins_spec(traversins, allowed={"g","b"})
     legend_items = _resolve_and_apply_colors(couleurs)
@@ -1834,11 +1845,11 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
     _assert_banquettes_max_250(polys)
 
     screen=turtle.Screen(); screen.setup(WIN_W,WIN_H)
-    screen.title(f"{window_title} â€” {tx}x{ty} cm â€” prof={profondeur} â€” mÃ©ridienne {meridienne_side or '-'}={meridienne_len} â€” coussins={coussins}")
+    screen.title(f"{window_title} — {tx}x{ty} cm — prof={profondeur} — méridienne {meridienne_side or '-'}={meridienne_len} — coussins={coussins}")
     t=turtle.Turtle(visible=False); t.speed(0); screen.tracer(False)
     tr=WorldToScreen(tx,ty,WIN_W,WIN_H,PAD_PX,ZOOM)
 
-    # (Quadrillage et repÃ¨res supprimÃ©s)
+    # (Quadrillage et repères supprimés)
 
     for poly in polys["dossiers"]:   draw_polygon_cm(t,tr,poly,fill=COLOR_DOSSIER)
     for poly in polys["banquettes"]: draw_polygon_cm(t,tr,poly,fill=COLOR_ASSISE)
@@ -1851,16 +1862,28 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
     draw_double_arrow_vertical_cm(t,tr,-25,0,ty,f"{ty} cm")
     draw_double_arrow_horizontal_cm(t,tr,-25,0,tx,f"{tx} cm")
 
-    banquette_sizes=[]
+    banquette_sizes = []
     if polys["angle"]:
-        side=int(round(pts["Fy"][1]-pts["F0"][1])); label_poly(t,tr,polys["angle"][0],f"{side}Ã—{side} cm")
+        side = int(round(pts["Fy"][1] - pts["F0"][1]))
+        # Écrire les dimensions d'angle sur deux lignes et centrer dans le carré d'angle
+        # Pour l'angle, on affiche la première dimension sans unité suivie d'un « x » et la seconde avec « cm »
+        label_poly(t, tr, polys["angle"][0], f"{side}x\n{side} cm")
+    # Afficher les dimensions des banquettes en les décalant légèrement lorsqu'elles sont verticales
     for poly in polys["banquettes"]:
-        L,P=banquette_dims(poly); text=f"{L}Ã—{P} cm"; banquette_sizes.append((L,P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]; bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        if bb_h>=bb_w:
-            label_poly_offset_cm(t,tr,poly,text,dx_cm=(CUSHION_DEPTH+10),dy_cm=0.0)
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Afficher la première dimension sans unité suivie d'un « x », la seconde avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Si la banquette est plus haute que large, décaler le texte vers la droite pour l'éloigner des coussins
+        # Réduction de 3 cm : offset moindre pour un positionnement plus proche des coussins
+        if bb_h >= bb_w:
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
-            label_poly(t,tr,poly,text)
+            label_poly(t, tr, poly, text)
     for poly in polys["dossiers"]: label_poly(t,tr,poly,"10")
     for poly in polys["accoudoirs"]: label_poly(t,tr,poly,"15")
 
@@ -1868,31 +1891,39 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
     spec = _parse_coussins_spec(coussins)
     if spec["mode"] == "auto":
         cushions_count, chosen_size = draw_cousins_and_return_count(t,tr,pts,tx,ty,"auto",meridienne_side,meridienne_len,traversins=trv)
-        total_line = f"{coussins} â†’ {cushions_count} Ã— {chosen_size} cm"
+        total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
     elif spec["mode"] == "fixed":
         cushions_count, chosen_size = draw_cousins_and_return_count(t,tr,pts,tx,ty,int(spec["fixed"]),meridienne_side,meridienne_len,traversins=trv)
-        total_line = f"{coussins} â†’ {cushions_count} Ã— {chosen_size} cm"
+        total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
     else:
         best = _optimize_valise_L_like(pts, spec["range"], spec["same"], x_end_key="Bx", y_end_key="By", traversins=trv)
         if not best:
             raise ValueError("Aucune configuration valise valide pour LF.")
         sizes = best["sizes"]; shift = best["shift_bas"]
         n, sb, sg = _draw_L_like_with_sizes(t, tr, pts, sizes, shift, x_end_key="Bx", y_end_key="By", traversins=trv)
-        cushions_count = n; total_line = _format_valise_counts_console({"bas": sb, "gauche": sg}, best["counts"], cushions_count)
+        cushions_count = n
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
 
-    # LÃ©gende (couleurs)
+    # Légende (couleurs)
     draw_legend(t, tr, tx, ty, items=legend_items, pos="top-right")
 
     screen.tracer(True); t.hideturtle()
     add_split = int(polys["split_flags"]["left"] and dossier_left) + int(polys["split_flags"]["bottom"] and dossier_bas)
     A = profondeur + 20
-    print("=== Rapport canapÃ© (LF) ===")
-    print(f"Dimensions : {tx}Ã—{ty} cm â€” profondeur : {profondeur} cm")
-    print(f"Banquettes : {len(polys['banquettes'])} â†’ {banquette_sizes}")
-    print(f"Dossiers : {len(polys['dossiers'])} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
-    print(f"Banquettes dâ€™angle : 1")
-    print(f"Angles : 1 Ã— {A}Ã—{A} cm")
-    print(f"Traversins : {n_traversins} Ã— 70x30")
+    print("=== Rapport canapé (LF) ===")
+    print(f"Dimensions : {tx}×{ty} cm — profondeur : {profondeur} cm")
+    print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
+    print(f"Banquettes d’angle : 1")
+    print(f"Angles : 1 × {A}×{A} cm")
+    print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
     turtle.done()
 
@@ -1972,7 +2003,7 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
                     dossier_left=True, dossier_bas=True, dossier_right=True,
                     acc_left=True, acc_bas=True, acc_right=True):
     polys = {"angles": [], "banquettes": [], "dossiers": [], "accoudoirs": []}
-    # U2F â€” couture overlays for bottom angle seams (drawn after all other dossiers)
+    # U2F — couture overlays for bottom angle seams (drawn after all other dossiers)
     angle_seams = []
 
     angle_L = [pts["F0"], pts["Fx"], pts["Fx2"], pts["Fy2"], pts["Fy"], pts["F0"]]
@@ -2020,14 +2051,14 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         polys["banquettes"].append(ban_r)
 
     if dossier_left:
-        # retour gauche : dÃ©pend de la prÃ©sence du dossier bas
+        # retour gauche : dépend de la présence du dossier bas
         if dossier_bas:
-            # avec dossier bas : le retour inclut les 10 cm infÃ©rieurs
+            # avec dossier bas : le retour inclut les 10 cm inférieurs
             polys["dossiers"].append([pts["D0"], pts["D0x"], pts["F0"], pts["Fy"], pts["Dy"], pts["D0"]])
         else:
-            # sans dossier bas : on dÃ©marre Ã  la hauteur de l'assise (10 cm)
+            # sans dossier bas : on démarre à la hauteur de l'assise (10 cm)
             polys["dossiers"].append([pts["D0y"], pts["F0"], pts["Fy"], pts["Dy"], pts["D0y"]])
-        # bande sur la banquette gauche : scindÃ©e si nÃ©cessaire
+        # bande sur la banquette gauche : scindée si nécessaire
         x0, x1 = 0, pts["F0"][0]
         y0 = pts["Dy"][1]
         y1 = pts.get("By_", pts["By"])[1]
@@ -2037,7 +2068,7 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
     # --- Dossiers bas : suivre la scission de la banquette du bas ---
     if dossier_bas:
         F0x, F0y = pts["F0"]
-        F02x     = pts["F02"][0]  # fin intÃ©rieure cÃ´tÃ© droit
+        F02x     = pts["F02"][0]  # fin intérieure côté droit
         # longueur de l'assise centrale (entre Fx et Bx)
         Lb = abs(pts["Bx"][0] - pts["Fx"][0])
         if Lb > SPLIT_THRESHOLD:
@@ -2051,13 +2082,13 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
     if dossier_right:
         # retour droit (dossier 6)
         if dossier_bas:
-            # avec dossier bas : le retour inclut les 10 cm infÃ©rieurs
+            # avec dossier bas : le retour inclut les 10 cm inférieurs
             F02x = pts["F02"][0]
             polys["dossiers"].append(_rectU(F02x, 0, pts["D02"][0], pts["Dy_r"][1]))
         else:
-            # sans dossier bas : on dÃ©marre Ã  la hauteur de l'assise (10 cm)
+            # sans dossier bas : on démarre à la hauteur de l'assise (10 cm)
             polys["dossiers"].append([pts["D02y"], pts["F02"], pts["Fy4"], pts["Dy_r"], pts["D02y"]])
-        # bande sur la banquette droite : scindÃ©e si nÃ©cessaire
+        # bande sur la banquette droite : scindée si nécessaire
         x0, x1 = pts["F02"][0], tx
         y0 = pts["Fy4"][1]
         y1 = pts.get("By4_", pts["By4"])[1]
@@ -2077,16 +2108,16 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
 
     polys["split_flags"]={"left":split_g,"bottom":split_b,"right":split_r}
     # ------------------------------------------------------------
-    # U2F â€” Overlays des coutures dâ€™angle bas (toujours au-dessus de D3)
+    # U2F — Overlays des coutures d’angle bas (toujours au-dessus de D3)
     # ------------------------------------------------------------
-    # Ajoute deux fines bandes verticales sur les arÃªtes internes des angles
-    # pour rendre visible la dÃ©limitation des dossiers d'angle bas.
+    # Ajoute deux fines bandes verticales sur les arêtes internes des angles
+    # pour rendre visible la délimitation des dossiers d'angle bas.
     if dossier_bas:
-        # Ã‰paisseur visuelle de la couture : ~2% de la hauteur du dossier bas, bornÃ©e
+        # Épaisseur visuelle de la couture : ~2% de la hauteur du dossier bas, bornée
         F0y_local = pts["F0"][1]
         seam = max(0.2, min(0.8, F0y_local * 0.02))
-        # Angle gauche (D2) : trait vertical centrÃ© entre Fx.x et Dx.x
-        # On trace cette couture dÃ¨s qu'il y a un dossier bas, mÃªme si dossier_left est False.
+        # Angle gauche (D2) : trait vertical centré entre Fx.x et Dx.x
+        # On trace cette couture dès qu'il y a un dossier bas, même si dossier_left est False.
         x_left_candidates = []
         if "Fx" in pts:
             x_left_candidates.append(pts["Fx"][0])
@@ -2098,10 +2129,10 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
             else:
                 x = x_left_candidates[0]
             angle_seams.append(_rectU(x - seam/2, 0, x + seam/2, F0y_local))
-        # Angle droit (D4/D5) : trait vertical centrÃ© sur l'arÃªte Dx2â€“Bx
-        # On trace cette couture dÃ¨s qu'il y a un dossier bas, mÃªme si dossier_right est False.
+        # Angle droit (D4/D5) : trait vertical centré sur l'arête Dx2–Bx
+        # On trace cette couture dès qu'il y a un dossier bas, même si dossier_right est False.
         x_right_candidates = []
-        # Utiliser Dx2 et Bx pour la couture droite (mÃ©diane robuste si les deux existent)
+        # Utiliser Dx2 et Bx pour la couture droite (médiane robuste si les deux existent)
         if "Dx2" in pts:
             x_right_candidates.append(pts["Dx2"][0])
         if "Bx" in pts:
@@ -2112,7 +2143,7 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
             else:
                 xr = x_right_candidates[0]
             angle_seams.append(_rectU(xr - seam/2, 0, xr + seam/2, F0y_local))
-    # Flusher les coutures en dernier pour garantir leur visibilitÃ©
+    # Flusher les coutures en dernier pour garantir leur visibilité
     if angle_seams:
         polys["dossiers"] += angle_seams
     return polys
@@ -2127,11 +2158,11 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                        coussins="auto",
                        traversins=None,
                        couleurs=None,
-                       window_title="U2F â€” variantes"):
+                       window_title="U2F — variantes"):
     if meridienne_side == 'g' and acc_left:
-        raise ValueError("Erreur: une mÃ©ridienne gauche ne peut pas coexister avec un accoudoir gauche.")
+        raise ValueError("Erreur: une méridienne gauche ne peut pas coexister avec un accoudoir gauche.")
     if meridienne_side == 'd' and acc_right:
-        raise ValueError("Erreur: une mÃ©ridienne droite ne peut pas coexister avec un accoudoir droit.")
+        raise ValueError("Erreur: une méridienne droite ne peut pas coexister avec un accoudoir droit.")
 
     trv = _parse_traversins_spec(traversins, allowed={"g","d"})
     legend_items = _resolve_and_apply_colors(couleurs)
@@ -2147,11 +2178,11 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
 
     ty_canvas = pts["_ty_canvas"]
     screen = turtle.Screen(); screen.setup(WIN_W, WIN_H)
-    screen.title(f"{window_title} â€” tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} â€” prof={profondeur}")
+    screen.title(f"{window_title} — tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur}")
     t = turtle.Turtle(visible=False); t.speed(0); screen.tracer(False)
     tr = WorldToScreen(tx, ty_canvas, WIN_W, WIN_H, PAD_PX, ZOOM)
 
-    # (Quadrillage et repÃ¨res supprimÃ©s)
+    # (Quadrillage et repères supprimés)
 
     for poly in polys["dossiers"]:   draw_polygon_cm(t, tr, poly, fill=COLOR_DOSSIER)
     for poly in polys["banquettes"]: draw_polygon_cm(t, tr, poly, fill=COLOR_ASSISE)
@@ -2167,17 +2198,25 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
 
     A = profondeur + 20
     for poly in polys["angles"]:
-        label_poly(t, tr, poly, f"{A}Ã—{A} cm")
+        # Écrire les dimensions d’angle sur deux lignes, première ligne sans unité suivie d’un « x »
+        label_poly(t, tr, poly, f"{A}x\n{A} cm")
 
-    banquette_sizes=[]
+    banquette_sizes = []
     for poly in polys["banquettes"]:
-        L, P = banquette_dims(poly); banquette_sizes.append((L, P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
-        bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        cx = sum(xs)/len(xs)
-        text=f"{L}Ã—{P} cm"
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Affichage de la dimension principale sans unité suivie d'un « x », et de la profondeur avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Décaler horizontalement si la banquette est plus haute que large
         if bb_h >= bb_w:
-            dx = (CUSHION_DEPTH+10) if cx < tx/2 else -(CUSHION_DEPTH+10)
+            cx = sum(xs) / len(xs)
+            # Réduire les offsets : 3 cm en moins sur les branches verticales
+            # Branche gauche : CUSHION_DEPTH+7 (ex: 22 cm). Branche droite : -(CUSHION_DEPTH-8) (ex: -7 cm).
+            dx = (CUSHION_DEPTH + 7) if cx < tx / 2.0 else -(CUSHION_DEPTH - 8)
             label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
@@ -2205,11 +2244,11 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                 best_score, best = score, s
         size = best
         cushions_count = _draw_cushions_U2f_optimized_wrapper(t, tr, pts, size, traversins=trv)
-        total_line = f"{coussins} â†’ {cushions_count} Ã— {size} cm"
+        total_line = f"{coussins} → {cushions_count} × {size} cm"
     elif spec["mode"] == "fixed":
         size = int(spec["fixed"])
         cushions_count = _draw_cushions_U2f_optimized_wrapper(t, tr, pts, size, traversins=trv)
-        total_line = f"{coussins} â†’ {cushions_count} Ã— {size} cm"
+        total_line = f"{coussins} → {cushions_count} × {size} cm"
     else:
         best = _optimize_valise_U2f(pts, spec["range"], spec["same"], traversins=trv)
         if not best:
@@ -2217,32 +2256,39 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
         sizes = best["sizes"]; shiftL = best["shiftL"]; shiftR = best["shiftR"]
         cushions_count = _draw_U2f_with_sizes(t, tr, pts, sizes, shiftL, shiftR, traversins=trv)
         sb, sg, sd = sizes["bas"], sizes["gauche"], sizes["droite"]
-        total_line = _format_valise_counts_console({"bas": sb, "gauche": sg, "droite": sd}, best["counts"], cushions_count)
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
 
-    # Titre demandÃ© + lÃ©gende (U â†’ lÃ©gende en haut-centre)
-    draw_title_center(t, tr, tx, ty_canvas, "CanapÃ© en U avec deux angles")
+    # Titre demandé + légende (U → légende en haut-centre)
+    draw_title_center(t, tr, tx, ty_canvas, "Canapé en U avec deux angles")
     draw_legend(t, tr, tx, ty_canvas, items=legend_items, pos="top-center")
 
     screen.tracer(True); t.hideturtle()
     add_split = sum(int(v) for v in polys.get("split_flags", {}).values())
-    print("=== Rapport canapÃ© U2f ===")
-    print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} â€” prof={profondeur} (A={A})")
-    print(f"MÃ©ridienne : {meridienne_side or '-'} ({meridienne_len} cm)")
-    print(f"Banquettes : {len(polys['banquettes'])} â†’ {banquette_sizes}")
+    print("=== Rapport canapé U2f ===")
+    print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur} (A={A})")
+    print(f"Méridienne : {meridienne_side or '-'} ({meridienne_len} cm)")
+    print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
     dossier_bonus = int(polys["split_flags"].get("left", False) and dossier_left) + \
                    int(polys["split_flags"].get("bottom", False) and dossier_bas) + \
                    int(polys["split_flags"].get("right", False) and dossier_right)
-    print(f"Dossiers : {len(polys['dossiers'])} (+{dossier_bonus} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers : {dossiers_str} (+{dossier_bonus} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
     print(f"Banquettes d'angle : 2")
-    print(f"Angles : 2 Ã— {A}Ã—{A} cm")
-    print(f"Traversins : {n_traversins} Ã— 70x30")
+    print(f"Angles : 2 × {A}×{A} cm")
+    print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
     turtle.done()
 
 # =====================================================================
-# ===================  U1F (1 angle fromage) â€” v1..v4  =================
+# ===================  U1F (1 angle fromage) — v1..v4  =================
 # =====================================================================
-# (version validÃ©e + palette + lÃ©gende U en haut-centre)
+# (version validée + palette + légende U en haut-centre)
 
 def _split_banquette_if_needed_U1F(poly):
     xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
@@ -2337,8 +2383,8 @@ def compute_points_U1F_v1(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                           dossier_left=True, dossier_bas=True, dossier_right=True,
                           acc_left=True, acc_right=True,
                           meridienne_side=None, meridienne_len=0):
-    if meridienne_side == 'g' and acc_left:  raise ValueError("MÃ©ridienne gauche interdite avec accoudoir gauche.")
-    if meridienne_side == 'd' and acc_right: raise ValueError("MÃ©ridienne droite interdite avec accoudoir droit.")
+    if meridienne_side == 'g' and acc_left:  raise ValueError("Méridienne gauche interdite avec accoudoir gauche.")
+    if meridienne_side == 'd' and acc_right: raise ValueError("Méridienne droite interdite avec accoudoir droit.")
 
     A, F0x, F0y = _common_offsets_u1f(profondeur, dossier_left, dossier_bas, dossier_right)
     pts={}
@@ -2352,7 +2398,7 @@ def compute_points_U1F_v1(tx, ty_left, tz_right, profondeur=DEPTH_STD,
     top_y_L_dos  = (max(F0y + A, top_y_L_full - meridienne_len) if meridienne_side=='g' else top_y_L_full)
     pts["By"]=(F0x, top_y_L_full); pts["By2"]=(F0x+profondeur, top_y_L_full)
     pts["Dy"]=(0, F0y + A); pts["Dy2"]=(0, top_y_L_dos)
-    pts["By_dL"]=(F0x, top_y_L_dos)   # stop dossier G avec mÃ©ridienne G
+    pts["By_dL"]=(F0x, top_y_L_dos)   # stop dossier G avec méridienne G
     pts["Ay"]=(0, ty_left); pts["Ay2"]=(F0x+profondeur, ty_left); pts["Ay_"]=(F0x, ty_left)
 
     # Bas/droite
@@ -2400,7 +2446,7 @@ def build_polys_U1F_v1(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         split_any = split_any or split
 
     if d["D1"]:
-        # scinder D1 sur la banquette gauche si nÃ©cessaire
+        # scinder D1 sur la banquette gauche si nécessaire
         x0, x1 = 0, pts["F0"][0]
         y0 = pts["Fy"][1]
         y1 = pts["By_dL"][1]
@@ -2411,7 +2457,7 @@ def build_polys_U1F_v1(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
     if d["D3"] or d["D4"] or d["D5"]:
         F0x, F0y   = pts["F0"]
         xL_total   = F0x
-        xR_total   = pts["F02"][0]                 # fin intÃ©rieure Ã  droite
+        xR_total   = pts["F02"][0]                 # fin intérieure à droite
         Lb         = abs(pts["Bx"][0] - pts["Fx"][0])  # assise centrale
         if Lb > SPLIT_THRESHOLD:
             mid_x = _split_mid_int(pts["Fx"][0], pts["Bx"][0])
@@ -2422,7 +2468,7 @@ def build_polys_U1F_v1(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         else:
             polys["dossiers"].append(_rectU(xL_total, 0, xR_total, F0y))
     if d["D6"]:
-        # scinder D6 (droit haut) si nÃ©cessaire
+        # scinder D6 (droit haut) si nécessaire
         x0, x1 = pts["D02x"][0], tx
         y0 = 0
         y1 = pts["By4_d"][1]
@@ -2441,13 +2487,13 @@ def build_polys_U1F_v1(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         else:
             polys["accoudoirs"].append([pts["By3"], pts["Ax"], pts["Ax_par"], pts["By4"], pts["By3"]])
 
-    # U1F v1 â€” dÃ©limitations verticales des dossiers bas :
-    # - Dxâ€“Fx  : jonction dossiers 3 et 4
-    # - Dx2â€“Bx : jonction dossiers 4 et 5
+    # U1F v1 — délimitations verticales des dossiers bas :
+    # - Dx–Fx  : jonction dossiers 3 et 4
+    # - Dx2–Bx : jonction dossiers 4 et 5
     if dossier_bas:
         F0y_local = pts["F0"][1]
         seam = max(0.2, min(0.8, F0y_local * 0.02))
-        # Jonction D3/D4 : trait centrÃ© entre Dx.x et Fx.x
+        # Jonction D3/D4 : trait centré entre Dx.x et Fx.x
         x_mid_candidates = []
         if "Dx" in pts:
             x_mid_candidates.append(pts["Dx"][0])
@@ -2459,7 +2505,7 @@ def build_polys_U1F_v1(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
             else:
                 xm = x_mid_candidates[0]
             polys["dossiers"].append(_rectU(xm - seam/2, 0, xm + seam/2, F0y_local))
-        # Jonction D4/D5 : trait centrÃ© entre Dx2.x et Bx.x
+        # Jonction D4/D5 : trait centré entre Dx2.x et Bx.x
         x_right_candidates = []
         if "Dx2" in pts:
             x_right_candidates.append(pts["Dx2"][0])
@@ -2479,8 +2525,8 @@ def compute_points_U1F_v2(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                           dossier_left=True, dossier_bas=True, dossier_right=True,
                           acc_left=True, acc_right=True,
                           meridienne_side=None, meridienne_len=0):
-    if meridienne_side == 'g' and acc_left:  raise ValueError("MÃ©ridienne gauche interdite avec accoudoir gauche.")
-    if meridienne_side == 'd' and acc_right: raise ValueError("MÃ©ridienne droite interdite avec accoudoir droit.")
+    if meridienne_side == 'g' and acc_left:  raise ValueError("Méridienne gauche interdite avec accoudoir gauche.")
+    if meridienne_side == 'd' and acc_right: raise ValueError("Méridienne droite interdite avec accoudoir droit.")
 
     A, F0x, F0y = _common_offsets_u1f(profondeur, dossier_left, dossier_bas, dossier_right)
     pts={}
@@ -2501,7 +2547,7 @@ def compute_points_U1F_v2(tx, ty_left, tz_right, profondeur=DEPTH_STD,
     F02x = tx - (10 if dossier_right else 0)
     pts["F02"]=(F02x, F0y)
     # ajout alias D02x pour build_polys_U1F_v2
-    pts["D02x"] = (F02x, 0)  # alias utilisÃ© par build_polys_U1F_v2
+    pts["D02x"] = (F02x, 0)  # alias utilisé par build_polys_U1F_v2
 
     # Bas v2
     pts["Dx2"]=(F02x, 0); pts["Bx2"]=(F02x, F0y + profondeur)
@@ -2510,7 +2556,7 @@ def compute_points_U1F_v2(tx, ty_left, tz_right, profondeur=DEPTH_STD,
     col_x = F02x - profondeur
     pts["Fy3"]=(col_x, F0y + profondeur); pts["By3"]=(col_x, tz_right - (ACCOUDOIR_THICK if acc_right else 0))
 
-    # ExtrÃ©mitÃ© droite
+    # Extrémité droite
     top_y_R_full = tz_right - (ACCOUDOIR_THICK if acc_right else 0)
     top_y_R_dos  = (max(F0y + A, top_y_R_full - meridienne_len) if meridienne_side=='d' else top_y_R_full)
     pts["By4"]=(F02x, top_y_R_full); pts["By4_d"]=(F02x, top_y_R_dos)
@@ -2550,13 +2596,13 @@ def build_polys_U1F_v2(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         polys["banquettes"] += pieces
         split_any = split_any or split
 
-    # D1 (gauche) â€” scinder selon la banquette gauche si nÃ©cessaire
+    # D1 (gauche) — scinder selon la banquette gauche si nécessaire
     if d["D1"]:
-        # Rectangle vertical sur la banquette gauche : de y=Fy.y Ã  y=By_dL.y
+        # Rectangle vertical sur la banquette gauche : de y=Fy.y à y=By_dL.y
         x0, x1 = 0, pts["F0"][0]
         y0 = pts["Fy"][1]
         y1 = pts["By_dL"][1]
-        # Bornes complÃ¨tes de l'assise gauche (sans mÃ©ridienne) : Fy.y â†’ By.y
+        # Bornes complètes de l'assise gauche (sans méridienne) : Fy.y → By.y
         seat_y0, seat_y1 = pts["Fy"][1], pts["By"][1]
         polys["dossiers"] += _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0, seat_y1)
     if d["D2"]: polys["dossiers"].append([pts["D0x"], pts["D0"], pts["Dy"], pts["Fy"], pts["D0x"]])
@@ -2565,7 +2611,7 @@ def build_polys_U1F_v2(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         F0x, F0y = pts["F0"]
         xL_total = F0x
         xR_total = pts["F02"][0]
-        # assise centrale = Fx â†’ F02
+        # assise centrale = Fx → F02
         Lb = abs(pts["F02"][0] - pts["Fx"][0])
         if Lb > SPLIT_THRESHOLD:
             mid_x = _split_mid_int(pts["Fx"][0], pts["F02"][0])
@@ -2576,14 +2622,14 @@ def build_polys_U1F_v2(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         else:
             polys["dossiers"].append(_rectU(xL_total, 0, xR_total, F0y))
     # Ajout d'une bande de dossier bas-droite (D5) pour la variante v2.
-    # Le polygone est dÃ©fini lorsque le dossier bas est actif OU lorsque le dossier droit est actif.
-    # Cela garantit la fermeture visuelle mÃªme si seul le dossier droit est prÃ©sent.
+    # Le polygone est défini lorsque le dossier bas est actif OU lorsque le dossier droit est actif.
+    # Cela garantit la fermeture visuelle même si seul le dossier droit est présent.
     if d["D5"] or dossier_right:
         polys["dossiers"].append([pts["Dx2"], pts["D02"], pts["Dy3"], pts["Bx2"], pts["Dx2"]])
     if d["D6"]:
-        # D6 (droit haut) â€” scinder selon la banquette droite si nÃ©cessaire
+        # D6 (droit haut) — scinder selon la banquette droite si nécessaire
         x0, x1 = pts["D02x"][0], tx
-        # Le dossier droit dÃ©marre Ã  la hauteur Fy3.y (banquette droite en v2)
+        # Le dossier droit démarre à la hauteur Fy3.y (banquette droite en v2)
         y0 = pts["Fy3"][1]
         y1 = pts["By4_d"][1]
         seat_y0, seat_y1 = pts["Fy3"][1], pts["By4"][1]
@@ -2601,7 +2647,7 @@ def build_polys_U1F_v2(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         else:
             polys["accoudoirs"].append([pts["By3"], pts["Ax"], pts["Ax_par"], pts["By4"], pts["By3"]])
 
-    # U1F v1/v2 â€” dÃ©limitation verticale Dxâ€“Fx (jonction dossiers 3 et 4)
+    # U1F v1/v2 — délimitation verticale Dx–Fx (jonction dossiers 3 et 4)
     if dossier_bas:
         F0y_local = pts["F0"][1]
         seam = max(0.2, min(0.8, F0y_local * 0.02))
@@ -2625,9 +2671,9 @@ def compute_points_U1F_v3(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                           acc_left=True, acc_right=True,
                           meridienne_side=None, meridienne_len=0):
     if meridienne_side == 'g' and acc_left:
-        raise ValueError("MÃ©ridienne gauche interdite avec accoudoir gauche.")
+        raise ValueError("Méridienne gauche interdite avec accoudoir gauche.")
     if meridienne_side == 'd' and acc_right:
-        raise ValueError("MÃ©ridienne droite interdite avec accoudoir droit.")
+        raise ValueError("Méridienne droite interdite avec accoudoir droit.")
 
     A = profondeur + 20
     F0x = 10 if dossier_left else 0
@@ -2652,7 +2698,7 @@ def compute_points_U1F_v3(tx, ty_left, tz_right, profondeur=DEPTH_STD,
     pts["F02"]=(F02x, F0y)
     pts["D02x"]=(F02x, 0)
 
-    # Assise bas (cÃ´tÃ© angle)
+    # Assise bas (côté angle)
     bx_x = F02x - (profondeur + 20)
     pts["Bx"]=(bx_x, F0y); pts["Bx2"]=(bx_x, F0y + profondeur); pts["Dx2"]=(bx_x, 0)
 
@@ -2677,7 +2723,7 @@ def compute_points_U1F_v3(tx, ty_left, tz_right, profondeur=DEPTH_STD,
     if not dossier_bas:
         pts["D0y"]=(0, 0); pts["D02y"]=(tx, 0)
 
-    # Bornes coussins (arrÃªt si mÃ©ridienne)
+    # Bornes coussins (arrêt si méridienne)
     pts["By_cush"]  = (pts["By"][0],  min(pts["By"][1],  pts["Dy2"][1]))
     pts["By4_cush"] = (pts["By4"][0], min(pts["By4"][1], pts["By4_d"][1]))
 
@@ -2708,12 +2754,12 @@ def build_polys_U1F_v3(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
 
     # Dossiers
     if d["D1"]:
-        # scinder D1 sur la banquette gauche si nÃ©cessaire
+        # scinder D1 sur la banquette gauche si nécessaire
         x0, x1 = 0, pts["F0"][0]
-        # Ã‰tirer le dossier gauche jusqu'Ã  la base du canapÃ© (y=0) pour Ã©viter le Â« trou Â»
+        # Étirer le dossier gauche jusqu'à la base du canapé (y=0) pour éviter le « trou »
         y0 = 0
         y1 = pts["By_dL"][1]
-        # Bornes complÃ¨tes de l'assise gauche pour la scission (F0.y â†’ By.y)
+        # Bornes complètes de l'assise gauche pour la scission (F0.y → By.y)
         seat_y0, seat_y1 = pts["F0"][1], pts["By"][1]
         polys["dossiers"] += _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0, seat_y1)
     # --- Dossiers bas : 1 ou 2 rectangles selon scission de l'assise ---
@@ -2733,14 +2779,14 @@ def build_polys_U1F_v3(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
     if d["D5"]:
         polys["dossiers"].append([pts["D02x"], pts["Fy2"], pts["Dy2R"], pts["D02"], pts["D02x"]])
     if d["D6"]:
-        # scinder D6 (droit haut) si nÃ©cessaire
+        # scinder D6 (droit haut) si nécessaire
         x0, x1 = pts["D02x"][0], tx
         y0 = pts["Fy3"][1]
         y1 = pts["By4_d"][1]
         seat_y0, seat_y1 = pts["Fy3"][1], pts["By4"][1]
         polys["dossiers"] += _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0, seat_y1)
 
-    # U1F v3 â€” dÃ©limitation verticale Dxâ€“Fx (jonction dossiers 3 et 4)
+    # U1F v3 — délimitation verticale Dx–Fx (jonction dossiers 3 et 4)
     if dossier_bas:
         F0y_local = pts["F0"][1]
         seam = max(0.2, min(0.8, F0y_local * 0.02))
@@ -2756,14 +2802,14 @@ def build_polys_U1F_v3(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
                 xm = x_mid_candidates[0]
             polys["dossiers"].append(_rectU(xm - seam/2, 0, xm + seam/2, F0y_local))
 
-    # --- Overlay couture verticale Dx2â€“Bx pour dÃ©limiter le dossier bas (jonction D4/D5) ---
-    # DessinÃ©e en dernier dans les dossiers pour garantir la visibilitÃ©. Ceci reproduit le
-    # comportement de la variante v4 pour rendre visible la sÃ©paration entre la banquette
-    # centrale et la banquette droite (Dx2â€“Bx). Nous ne modifions aucune gÃ©omÃ©trie
-    # existanteÂ : seule cette fine bande est ajoutÃ©e en overlay si le cÃ´tÃ© droit est actif.
+    # --- Overlay couture verticale Dx2–Bx pour délimiter le dossier bas (jonction D4/D5) ---
+    # Dessinée en dernier dans les dossiers pour garantir la visibilité. Ceci reproduit le
+    # comportement de la variante v4 pour rendre visible la séparation entre la banquette
+    # centrale et la banquette droite (Dx2–Bx). Nous ne modifions aucune géométrie
+    # existante : seule cette fine bande est ajoutée en overlay si le côté droit est actif.
     if d.get("D4") or d.get("D5"):
         F0y_local = pts["F0"][1]
-        # Ã©paisseur visuelle cohÃ©rente (~2Â % de la hauteur du dossier bas), bornÃ©e entre 0.2 et 0.8 cm
+        # épaisseur visuelle cohérente (~2 % de la hauteur du dossier bas), bornée entre 0.2 et 0.8 cm
         seam = max(0.2, min(0.8, F0y_local * 0.02))
 
         x_right_candidates = []
@@ -2773,7 +2819,7 @@ def build_polys_U1F_v3(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
             x_right_candidates.append(pts["Bx"][0])
 
         if x_right_candidates:
-            # On prend la moyenne des coordonnÃ©es pour robustesse en cas de lÃ©ger dÃ©calage
+            # On prend la moyenne des coordonnées pour robustesse en cas de léger décalage
             xr = sum(x_right_candidates) / len(x_right_candidates)
             polys["dossiers"].append(
                 _rectU(xr - seam / 2, 0,
@@ -2801,9 +2847,9 @@ def compute_points_U1F_v4(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                           acc_left=True, acc_right=True,
                           meridienne_side=None, meridienne_len=0):
     if meridienne_side == 'g' and acc_left:
-        raise ValueError("MÃ©ridienne gauche interdite avec accoudoir gauche.")
+        raise ValueError("Méridienne gauche interdite avec accoudoir gauche.")
     if meridienne_side == 'd' and acc_right:
-        raise ValueError("MÃ©ridienne droite interdite avec accoudoir droit.")
+        raise ValueError("Méridienne droite interdite avec accoudoir droit.")
 
     A, F0x, F0y = _common_offsets_u1f(profondeur, dossier_left, dossier_bas, dossier_right)
     F02x = tx - (10 if dossier_right else 0)
@@ -2874,10 +2920,10 @@ def build_polys_U1F_v4(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
     polys["angle"].append([pts["Bx"], pts["F02"], pts["Fy4"], pts["Fy3"], pts["Bx2"], pts["Bx"]])
 
     if d["D1"]:
-        # D1 (gauche) â€” scinder selon la banquette gauche si nÃ©cessaire
+        # D1 (gauche) — scinder selon la banquette gauche si nécessaire
         x0, x1 = 0, pts["F0"][0]
-        y0 = pts["Fy"][1]            # hauteur de dÃ©part de la banquette gauche
-        y1 = pts["By_dL"][1]         # hauteur maximale du dossier gauche (tenue compte mÃ©ridienne)
+        y0 = pts["Fy"][1]            # hauteur de départ de la banquette gauche
+        y1 = pts["By_dL"][1]         # hauteur maximale du dossier gauche (tenue compte méridienne)
         seat_y0, seat_y1 = pts["Fy"][1], pts["By"][1]
         polys["dossiers"] += _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0, seat_y1)
     if d["D2"]:
@@ -2887,10 +2933,10 @@ def build_polys_U1F_v4(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
         F0x, F0y = pts["F0"]
         xL_total = F0x
         xR_total = pts["F02"][0]
-        # largeur de la banquette centrale (F0 â†’ Bx), comme dans la scission de l'assise
+        # largeur de la banquette centrale (F0 → Bx), comme dans la scission de l'assise
         Lb = abs(pts["Bx"][0] - pts["F0"][0])
         if Lb > SPLIT_THRESHOLD:
-            # milieu identique Ã  celui utilisÃ© pour la scission de l'assise : mÃ©diane entre F0.x et Bx.x
+            # milieu identique à celui utilisé pour la scission de l'assise : médiane entre F0.x et Bx.x
             mid_x = _split_mid_int(pts["F0"][0], pts["Bx"][0])
             polys["dossiers"] += [
                 _rectU(xL_total, 0, mid_x,  F0y),
@@ -2901,15 +2947,15 @@ def build_polys_U1F_v4(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
     if d["D5"]:
         polys["dossiers"].append([pts["D02x"], pts["Fy4"], pts["Dy3"], pts["D02"], pts["D02x"]])
     if d["D6"]:
-        # D6 (droit haut) â€” scinder selon la banquette droite si nÃ©cessaire
+        # D6 (droit haut) — scinder selon la banquette droite si nécessaire
         x0, x1 = pts["D02x"][0], tx
-        # Le dossier droit dÃ©marre Ã  Fy4.y (banquette droite pour v4)
+        # Le dossier droit démarre à Fy4.y (banquette droite pour v4)
         y0 = pts["Fy4"][1]
         y1 = pts["By4_d"][1]
         seat_y0, seat_y1 = pts["Fy4"][1], pts["By4"][1]
         polys["dossiers"] += _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0, seat_y1)
 
-    # U1F v4 â€” dÃ©limitation verticale Dx2â€“Bx (jonction dossiers 4 et 5)
+    # U1F v4 — délimitation verticale Dx2–Bx (jonction dossiers 4 et 5)
     if dossier_bas:
         F0y_local = pts["F0"][1]
         seam = max(0.2, min(0.8, F0y_local * 0.02))
@@ -2967,11 +3013,11 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
 
     ty_canvas = max(ty_left, tz_right)
     screen = turtle.Screen(); screen.setup(WIN_W, WIN_H)
-    screen.title(f"U1F {variant} â€” {window_title} â€” tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} â€” prof={profondeur}")
+    screen.title(f"U1F {variant} — {window_title} — tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur}")
     t = turtle.Turtle(visible=False); t.speed(0); screen.tracer(False)
     tr = WorldToScreen(tx, ty_canvas, WIN_W, WIN_H, PAD_PX, ZOOM)
 
-    # (Quadrillage et repÃ¨res supprimÃ©s)
+    # (Quadrillage et repères supprimés)
 
     for p in polys["dossiers"]:
         xs=[pp[0] for pp in p]; ys=[pp[1] for pp in p]
@@ -2990,15 +3036,28 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
 
     A = pts["_A"]
     if polys["angle"]:
-        label_poly(t, tr, polys["angle"][0], f"{A}Ã—{A} cm")
-    banquette_sizes=[]
+        # Dimensions d’angle sur deux lignes : première ligne sans unité suivie d'un « x », deuxième ligne avec « cm »
+        label_poly(t, tr, polys["angle"][0], f"{A}x\n{A} cm")
+    banquette_sizes = []
     for poly in polys["banquettes"]:
-        L,P = banquette_dims(poly); banquette_sizes.append((L,P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
-        bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        text=f"{L}Ã—{P} cm"
-        if bb_h >= bb_w: label_poly_offset_cm(t,tr,poly,text,dx_cm=CUSHION_DEPTH+10,dy_cm=0)
-        else:            label_poly(t,tr,poly,text)
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Afficher la longueur sans unité suivie d'un « x », et la profondeur avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [pp[0] for pp in poly]
+        ys = [pp[1] for pp in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Décaler horizontalement si la banquette est plus haute que large
+        if bb_h >= bb_w:
+            # Centre X de la banquette
+            cx = sum(xs) / len(xs)
+            # Réduire les offsets : 3 cm en moins sur les branches verticales
+            # Branche gauche : CUSHION_DEPTH+7 (22 cm). Branche droite : -(CUSHION_DEPTH-8) (-7 cm).
+            dx = (CUSHION_DEPTH + 7) if cx < tx / 2.0 else -(CUSHION_DEPTH - 8)
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
+        else:
+            label_poly(t, tr, poly, text)
     for p in polys["dossiers"]:
         xs=[pp[0] for pp in p]; ys=[pp[1] for pp in p]
         if (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9):
@@ -3013,11 +3072,11 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
     if spec["mode"] == "auto":
         size = _choose_cushion_size_auto_U1F(pts, traversins=trv)
         nb_coussins = _draw_coussins_U1F(t, tr, pts, size, traversins=trv)
-        total_line = f"{coussins} â†’ {nb_coussins} Ã— {size} cm"
+        total_line = f"{coussins} → {nb_coussins} × {size} cm"
     elif spec["mode"] == "fixed":
         size = int(spec["fixed"])
         nb_coussins = _draw_coussins_U1F(t, tr, pts, size, traversins=trv)
-        total_line = f"{coussins} â†’ {nb_coussins} Ã— {size} cm"
+        total_line = f"{coussins} → {nb_coussins} × {size} cm"
     else:
         best = _optimize_valise_U1F(pts, spec["range"], spec["same"], traversins=trv)
         if not best:
@@ -3025,22 +3084,29 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
         sizes = best["sizes"]; shiftL, shiftR = best["shifts"]
         nb_coussins = _draw_U1F_with_sizes(t, tr, pts, sizes, shiftL, shiftR, traversins=trv)
         sb, sg, sd = sizes["bas"], sizes["gauche"], sizes["droite"]
-        total_line = _format_valise_counts_console({"bas": sb, "gauche": sg, "droite": sd}, best["counts"], nb_coussins)
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            nb_coussins,
+        )
 
-    # Titre + lÃ©gende (U â†’ haut-centre)
-    draw_title_center(t, tr, tx, ty_canvas, "CanapÃ© en U avec un angle")
+    # Titre + légende (U → haut-centre)
+    draw_title_center(t, tr, tx, ty_canvas, "Canapé en U avec un angle")
     draw_legend(t, tr, tx, ty_canvas, items=legend_items, pos="top-center")
 
     screen.tracer(True); t.hideturtle()
 
     add_split = int(polys.get("split_flags",{}).get("any",False))
     print(f"=== Rapport U1F {variant} ===")
-    print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} â€” profondeur={profondeur} (A={A})")
-    print(f"Banquettes : {len(polys['banquettes'])} â†’ {banquette_sizes}")
-    print(f"Dossiers : {len(polys['dossiers'])} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
-    print(f"Banquettes dâ€™angle : 1")
-    print(f"Angles : 1 Ã— {A}Ã—{A} cm")
-    print(f"Traversins : {n_traversins} Ã— 70x30")
+    print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — profondeur={profondeur} (A={A})")
+    print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
+    print(f"Banquettes d’angle : 1")
+    print(f"Angles : 1 × {A}×{A} cm")
+    print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
     turtle.done()
 
@@ -3050,7 +3116,7 @@ def _dry_polys_for_U1F_variant(tx, ty_left, tz_right, profondeur,
                                meridienne_side, meridienne_len,
                                variant):
     """
-    Calcule (pts, polys) pour une variante U1F donnÃ©e sans rendre le dessin.
+    Calcule (pts, polys) pour une variante U1F donnée sans rendre le dessin.
     Utile pour comparer plusieurs variantes et choisir celle qui convient.
     """
     comp = {
@@ -3086,9 +3152,9 @@ def render_U1F(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                variant="auto",
                traversins=None,
                couleurs=None,
-               window_title="U1F â€” auto"):
+               window_title="U1F — auto"):
     """
-    Rendu gÃ©nÃ©rique pour les U1F. Permet de forcer une variante (v1/v2/v3/v4)
+    Rendu générique pour les U1F. Permet de forcer une variante (v1/v2/v3/v4)
     ou de laisser le choix automatique (auto) entre les variantes les plus simples (v1 et v3).
     """
     v_norm = (variant or "auto").lower()
@@ -3335,9 +3401,9 @@ def build_polys_LNF_v1(pts, tx, ty, profondeur=DEPTH_STD,
     F0=pts["F0"]; Fx=pts["Fx"]; By=pts.get("By"); By2=pts.get("By2")
     ban_g=[F0, By, By2, Fx, F0]
     split_left=False; mid_y_left=None
-    # IMPORTANT : ne pas tronquer la banquette par la mÃ©ridienne.
-    # La mÃ©ridienne se matÃ©rialise par l'absence de dossier au-dessus,
-    # l'assise doit rester Ã  la hauteur "By/By2" (pleine hauteur).
+    # IMPORTANT : ne pas tronquer la banquette par la méridienne.
+    # La méridienne se matérialise par l'absence de dossier au-dessus,
+    # l'assise doit rester à la hauteur "By/By2" (pleine hauteur).
     top_y = By2[1]; base_y = F0[1]
     Lg = abs(top_y - base_y)
     if Lg > SPLIT_THRESHOLD:
@@ -3382,7 +3448,7 @@ def build_polys_LNF_v1(pts, tx, ty, profondeur=DEPTH_STD,
             polys["dossiers"] += [d3_g, d3_d]
         else:
             polys["dossiers"].append([pts["Dx"], DxR_use, Bx_use, pts["Fx"], pts["Dx"]])
-        # --- retour gauche si aucun dossier gauche (False ou None) et pas de mÃ©ridienne bas
+        # --- retour gauche si aucun dossier gauche (False ou None) et pas de méridienne bas
         if (dossier_left is None or dossier_left is False) and (meridienne_side not in ('b','B','bas','bottom')):
             # Ajoute un demi-dossier pour fermer la zone entre D0x/F0 et Dx/Fx
             polys["dossiers"].append([pts["D0x"], pts["Dx"], pts["Fx"], pts["F0"], pts["D0x"]])
@@ -3404,17 +3470,17 @@ def build_polys_LNF_v1(pts, tx, ty, profondeur=DEPTH_STD,
 def _choose_cushion_size_auto_L(pts, traversins=None):
     """
     Choix automatique de la taille de coussins (65/80/90) pour un L.
-    CritÃ¨re : choisir le standard qui permet de couvrir la plus grande
-    surface de canapÃ© (â‰ˆ nb_coussins * taille), en tenant compte des
-    traversins Ã©ventuels.
+    Critère : choisir le standard qui permet de couvrir la plus grande
+    surface de canapé (≈ nb_coussins * taille), en tenant compte des
+    traversins éventuels.
     """
     F0x, F0y = pts["F0"]
 
-    # MÃªme logique de fin de segment que partout ailleurs (LNF v1/v2)
+    # Même logique de fin de segment que partout ailleurs (LNF v1/v2)
     x_end = pts.get("Bx_mer", pts.get("Bx", (F0x, 0)))[0]
     y_end = pts.get("By_mer", pts.get("By", (F0x, F0y)))[1]
 
-    # On retire lâ€™Ã©paisseur des traversins sur les lignes concernÃ©es
+    # On retire l’épaisseur des traversins sur les lignes concernées
     if traversins:
         if "b" in traversins:
             x_end -= TRAVERSIN_THK
@@ -3432,11 +3498,11 @@ def _choose_cushion_size_auto_L(pts, traversins=None):
         return max(0, int((y_end - y_start) // size))
 
     best_size = 65
-    # score = (surface_couverte, -dÃ©chet_total, taille)
+    # score = (surface_couverte, -déchet_total, taille)
     best_score = (-1, 0.0, 0)
 
     for size in (65, 80, 90):
-        # Disposition A : bas collÃ© au coin, gauche dÃ©calÃ© vers le haut
+        # Disposition A : bas collé au coin, gauche décalé vers le haut
         cbA = count_bottom(F0x, size)
         clA = count_left(F0y + CUSHION_DEPTH, size)
         nA = cbA + clA
@@ -3445,9 +3511,9 @@ def _choose_cushion_size_auto_L(pts, traversins=None):
             wasteA += (x_end - F0x) % size
         if y_end > (F0y + CUSHION_DEPTH):
             wasteA += (y_end - (F0y + CUSHION_DEPTH)) % size
-        coverA = nA * size  # proportionnel Ã  la surface (CUSHION_DEPTH est constant)
+        coverA = nA * size  # proportionnel à la surface (CUSHION_DEPTH est constant)
 
-        # Disposition B : gauche collÃ© au coin, bas dÃ©calÃ© vers la droite
+        # Disposition B : gauche collé au coin, bas décalé vers la droite
         cbB = count_bottom(F0x + CUSHION_DEPTH, size)
         clB = count_left(F0y, size)
         nB = cbB + clB
@@ -3459,7 +3525,7 @@ def _choose_cushion_size_auto_L(pts, traversins=None):
         coverB = nB * size
 
         # Pour cette taille, garder la disposition qui couvre le plus,
-        # puis qui gÃ©nÃ¨re le moins de dÃ©chet.
+        # puis qui génère le moins de déchet.
         if (coverB, -wasteB) > (coverA, -wasteA):
             cover, waste = coverB, wasteB
         else:
@@ -3467,7 +3533,7 @@ def _choose_cushion_size_auto_L(pts, traversins=None):
 
         # Score global pour cette taille :
         # 1. plus de surface couverte
-        # 2. moins de dÃ©chet
+        # 2. moins de déchet
         # 3. taille plus grande en dernier recours
         score = (cover, -waste, size)
         if score > best_score:
@@ -3492,8 +3558,8 @@ def draw_coussins_L_optimized(t, tr, pts, coussins, traversins=None):
     def count_bottom(x_start): return max(0, int((x_end - x_start)//size))
     def count_left(y_start):   return max(0, int((y_end - y_start)//size))
 
-    nA = count_bottom(F0x) + count_left(F0y + CUSHION_DEPTH)  # bas collÃ©
-    nB = count_bottom(F0x + CUSHION_DEPTH) + count_left(F0y)  # bas dÃ©calÃ©
+    nA = count_bottom(F0x) + count_left(F0y + CUSHION_DEPTH)  # bas collé
+    nB = count_bottom(F0x + CUSHION_DEPTH) + count_left(F0y)  # bas décalé
 
     def draw_bottom(x_start):
         cnt=0; y=F0y; x_cur=x_start
@@ -3512,7 +3578,7 @@ def draw_coussins_L_optimized(t, tr, pts, coussins, traversins=None):
             y_cur += size; cnt += 1
         return cnt
 
-    # tie-break : max coussins, puis dÃ©chet minimal
+    # tie-break : max coussins, puis déchet minimal
     wasteA = (max(0, x_end-F0x)%size) + (max(0, y_end-(F0y+CUSHION_DEPTH))%size)
     wasteB = (max(0, x_end-(F0x+CUSHION_DEPTH))%size) + (max(0, y_end-F0y)%size)
     if (nB, -wasteB) > (nA, -wasteA):
@@ -3531,11 +3597,11 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
     legend_items = _resolve_and_apply_colors(couleurs)
 
     screen = turtle.Screen(); screen.setup(WIN_W,WIN_H)
-    screen.title(f"{window_title} â€” {tx}Ã—{ty} â€” prof={profondeur} â€” mÃ©ridienne {meridienne_side or '-'}={meridienne_len} â€” coussins={coussins}")
+    screen.title(f"{window_title} — {tx}×{ty} — prof={profondeur} — méridienne {meridienne_side or '-'}={meridienne_len} — coussins={coussins}")
     t = turtle.Turtle(visible=False); t.speed(0); screen.tracer(False)
     tr = WorldToScreen(tx, ty, WIN_W, WIN_H, PAD_PX, ZOOM)
 
-    # (Quadrillage et repÃ¨res supprimÃ©s)
+    # (Quadrillage et repères supprimés)
 
     for p in polys["dossiers"]:   draw_polygon_cm(t,tr,p,fill=COLOR_DOSSIER)
     for p in polys["banquettes"]: draw_polygon_cm(t,tr,p,fill=COLOR_ASSISE)
@@ -3547,13 +3613,23 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
     draw_double_arrow_vertical_cm(t,tr,-25,0,ty,f"{ty} cm")
     draw_double_arrow_horizontal_cm(t,tr,-25,0,tx,f"{tx} cm")
 
-    banquette_sizes=[]
+    # Banquettes : afficher les dimensions sur deux lignes. Décaler légèrement lorsque la banquette est verticale.
+    banquette_sizes = []
     for poly in polys["banquettes"]:
-        L,P = banquette_dims(poly); banquette_sizes.append((L,P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
-        bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        if bb_h>=bb_w: label_poly_offset_cm(t,tr,poly,f"{L}Ã—{P} cm",dx_cm=CUSHION_DEPTH+10,dy_cm=0)
-        else:          label_poly(t,tr,poly,f"{L}Ã—{P} cm")
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Afficher la longueur sans unité suivie d'un « x » puis la profondeur avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Décaler horizontalement pour éloigner le texte des coussins lorsque la banquette est plus haute que large
+        # Réduction de 3 cm : offset plus faible
+        if bb_h >= bb_w:
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
+        else:
+            label_poly(t, tr, poly, text)
 
     for p in polys["dossiers"]:   label_poly(t,tr,p,"10")
     for p in polys["accoudoirs"]: label_poly(t,tr,p,"15")
@@ -3562,19 +3638,24 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
     spec = _parse_coussins_spec(coussins)
     if spec["mode"] == "auto":
         cushions_count, chosen_size = draw_coussins_L_optimized(t,tr,pts,"auto", traversins=trv)
-        total_line = f"{coussins} â†’ {cushions_count} Ã— {chosen_size} cm"
+        total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
     elif spec["mode"] == "fixed":
         cushions_count, chosen_size = draw_coussins_L_optimized(t,tr,pts,int(spec["fixed"]), traversins=trv)
-        total_line = f"{coussins} â†’ {cushions_count} Ã— {chosen_size} cm"
+        total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
     else:
         best = _optimize_valise_L_like(pts, spec["range"], spec["same"], traversins=trv)
         if not best:
             raise ValueError("Aucune configuration valise valide pour L.")
         sizes = best["sizes"]; shift = best["shift_bas"]
         n, sb, sg = _draw_L_like_with_sizes(t, tr, pts, sizes, shift, traversins=trv)
-        cushions_count = n; total_line = _format_valise_counts_console({"bas": sb, "gauche": sg}, best["counts"], cushions_count)
+        cushions_count = n
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
 
-    # LÃ©gende
+    # Légende
     draw_legend(t, tr, tx, ty, items=legend_items, pos="top-right")
 
     screen.tracer(True); t.hideturtle()
@@ -3583,15 +3664,14 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
               + int(polys.get("split_flags",{}).get("bottom",False) and dossier_bas)
 
     print("=== Rapport LNF ===")
-    print(f"Dimensions : {tx}Ã—{ty} â€” prof={profondeur} â€” mÃ©ridienne {meridienne_side or '-'}={meridienne_len}")
-    print(f"Banquettes : {len(polys['banquettes'])} â†’ {banquette_sizes}")
-    # Comptage des dossiers : ajuste pour le cas oÃ¹ le bas comporte un "retour" sans dossier gauche
-    dossiers_count = len(polys['dossiers'])
-    if dossier_bas and (dossier_left is None) and (meridienne_side not in ('b','B','bas','bottom')):
-        dossiers_count -= 0.5
-    print(f"Dossiers : {dossiers_count} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
-    print(f"Banquettes dâ€™angle : 0")
-    print(f"Traversins : {n_traversins} Ã— 70x30")
+    print(f"Dimensions : {tx}×{ty} — prof={profondeur} — méridienne {meridienne_side or '-'}={meridienne_len}")
+    print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
+    print(f"Banquettes d’angle : 0")
+    print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
     turtle.done()
 
@@ -3602,13 +3682,13 @@ def render_LNF_v1(tx, ty, profondeur=DEPTH_STD,
                   coussins="auto",
                   traversins=None,
                   couleurs=None,
-                  window_title="LNF v1 â€” pivot gauche"):
+                  window_title="LNF v1 — pivot gauche"):
     if meridienne_side=='g':
-        if acc_left: raise ValueError("MÃ©ridienne gauche interdite avec accoudoir gauche.")
-        if not dossier_left: raise ValueError("MÃ©ridienne gauche impossible sans dossier gauche.")
+        if acc_left: raise ValueError("Méridienne gauche interdite avec accoudoir gauche.")
+        if not dossier_left: raise ValueError("Méridienne gauche impossible sans dossier gauche.")
     if meridienne_side=='b':
-        if acc_bas: raise ValueError("MÃ©ridienne bas interdite avec accoudoir bas.")
-        if not dossier_bas: raise ValueError("MÃ©ridienne bas impossible sans dossier bas.")
+        if acc_bas: raise ValueError("Méridienne bas interdite avec accoudoir bas.")
+        if not dossier_bas: raise ValueError("Méridienne bas impossible sans dossier bas.")
     pts = compute_points_LNF_v1(tx,ty,profondeur,dossier_left,dossier_bas,acc_left,acc_bas,meridienne_side,meridienne_len)
     polys = build_polys_LNF_v1(pts,tx,ty,profondeur,dossier_left,dossier_bas,acc_left,acc_bas,meridienne_side,meridienne_len)
     _render_common_L(tx,ty,pts,polys,coussins,window_title,profondeur,dossier_left,dossier_bas,meridienne_side,meridienne_len,traversins=traversins, couleurs=couleurs)
@@ -3620,13 +3700,13 @@ def render_LNF_v2(tx, ty, profondeur=DEPTH_STD,
                   coussins="auto",
                   traversins=None,
                   couleurs=None,
-                  window_title="LNF v2 â€” pivot bas"):
+                  window_title="LNF v2 — pivot bas"):
     if meridienne_side=='g':
-        if acc_left: raise ValueError("MÃ©ridienne gauche interdite avec accoudoir gauche.")
-        if not dossier_left: raise ValueError("MÃ©ridienne gauche impossible sans dossier gauche.")
+        if acc_left: raise ValueError("Méridienne gauche interdite avec accoudoir gauche.")
+        if not dossier_left: raise ValueError("Méridienne gauche impossible sans dossier gauche.")
     if meridienne_side=='b':
-        if acc_bas: raise ValueError("MÃ©ridienne bas interdite avec accoudoir bas.")
-        if not dossier_bas: raise ValueError("MÃ©ridienne bas impossible sans dossier bas.")
+        if acc_bas: raise ValueError("Méridienne bas interdite avec accoudoir bas.")
+        if not dossier_bas: raise ValueError("Méridienne bas impossible sans dossier bas.")
     pts = compute_points_LNF_v2(tx,ty,profondeur,dossier_left,dossier_bas,acc_left,acc_bas,meridienne_side,meridienne_len)
     polys = build_polys_LNF_v2(pts,tx,ty,profondeur,dossier_left,dossier_bas,acc_left,acc_bas,meridienne_side,meridienne_len)
     _render_common_L(tx,ty,pts,polys,coussins,window_title,profondeur,dossier_left,dossier_bas,meridienne_side,meridienne_len,traversins=traversins, couleurs=couleurs)
@@ -3637,11 +3717,11 @@ def _dry_polys_for_variant(tx, ty, profondeur,
                            meridienne_side, meridienne_len,
                            variant):
     if meridienne_side == 'g':
-        if acc_left:        raise ValueError("MÃ©ridienne gauche interdite avec accoudoir gauche.")
-        if not dossier_left:raise ValueError("MÃ©ridienne gauche impossible sans dossier gauche.")
+        if acc_left:        raise ValueError("Méridienne gauche interdite avec accoudoir gauche.")
+        if not dossier_left:raise ValueError("Méridienne gauche impossible sans dossier gauche.")
     if meridienne_side == 'b':
-        if acc_bas:         raise ValueError("MÃ©ridienne bas interdite avec accoudoir bas.")
-        if not dossier_bas: raise ValueError("MÃ©ridienne bas impossible sans dossier bas.")
+        if acc_bas:         raise ValueError("Méridienne bas interdite avec accoudoir bas.")
+        if not dossier_bas: raise ValueError("Méridienne bas impossible sans dossier bas.")
 
     if variant == "v1":
         pts = compute_points_LNF_v1(tx, ty, profondeur, dossier_left, dossier_bas, acc_left, acc_bas, meridienne_side, meridienne_len)
@@ -3659,7 +3739,7 @@ def render_LNF(tx, ty, profondeur=DEPTH_STD,
                variant="auto",
                traversins=None,
                couleurs=None,
-               window_title="LNF â€” auto"):
+               window_title="LNF — auto"):
     if variant and variant.lower() in ("v1", "v2"):
         chosen = variant.lower()
         if chosen == "v2":
@@ -3716,7 +3796,7 @@ def render_LNF(tx, ty, profondeur=DEPTH_STD,
                       window_title=window_title)
 
 # =====================================================================
-# =====================  U (no fromage) â€” v1..v4  =====================
+# =====================  U (no fromage) — v1..v4  =====================
 # =====================================================================
 
 def compute_points_U_v1(
@@ -3734,8 +3814,8 @@ def compute_points_U_v1(
     meridienne_len=0,
 ):
     """
-    Compute the key geometry points for a Uâ€‘shaped sofa variant v1,
-    optionally including a mÃ©ridienne. When ``meridienne_side`` is 'g'
+    Compute the key geometry points for a U‑shaped sofa variant v1,
+    optionally including a méridienne. When ``meridienne_side`` is 'g'
     (left) or 'd' (right) and ``meridienne_len`` > 0, the corresponding
     branch's back height is reduced accordingly. Additional keys
     ``By_`` and/or ``By4_`` are created to record these reduced heights.
@@ -3751,9 +3831,9 @@ def compute_points_U_v1(
     acc_left, acc_bas, acc_right : bool
         Flags indicating presence of armrests on the left, bottom and right.
     meridienne_side : {'g', 'd', None}
-        Side on which a mÃ©ridienne is present ('g' for left, 'd' for right).
+        Side on which a méridienne is present ('g' for left, 'd' for right).
     meridienne_len : int
-        Length of the mÃ©ridienne; ignored if nonâ€‘positive or ``meridienne_side`` is None.
+        Length of the méridienne; ignored if non‑positive or ``meridienne_side`` is None.
 
     Returns
     -------
@@ -3787,7 +3867,7 @@ def compute_points_U_v1(
     pts["By"] = (F0x, top_y_L_full)
     pts["By2"] = (F0x + prof, top_y_L_full)
     if meridienne_side == "g" and meridienne_len > 0:
-        # Reduced height points for mÃ©ridienne on left
+        # Reduced height points for méridienne on left
         pts["By_"] = (pts["By"][0], top_y_L_dos)
         pts["By2_"] = (pts["By2"][0], top_y_L_dos)
 
@@ -3813,7 +3893,7 @@ def compute_points_U_v1(
     pts["D02y"] = (tx, F0y)
     pts["Dy3"] = (tx, top_y_R_dos)
     if meridienne_side == "d" and meridienne_len > 0:
-        # Reduced height point for mÃ©ridienne on right
+        # Reduced height point for méridienne on right
         pts["By4_"] = (pts["By4"][0], top_y_R_dos)
 
     pts["Ax"] = (x_left_R, tz_right)
@@ -3875,7 +3955,7 @@ def build_polys_U_v1(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
     else:
         polys["banquettes"].append(ban_r)
 
-    # dossiers (groupes par cÃ´tÃ©s)
+    # dossiers (groupes par côtés)
     groups = _dossiers_groups_U("v1", pts, tx, profondeur, draw)
     _append_groups_to_polys_U(polys, groups)
 
@@ -3909,9 +3989,9 @@ def compute_points_U_v2(
     meridienne_len=0,
 ):
     """
-    Compute the key geometry points for a Uâ€‘shaped sofa variant v2,
-    including optional mÃ©ridienne support. Variant v2 has the left branch
-    aligned with the bottom. When a mÃ©ridienne is specified on either
+    Compute the key geometry points for a U‑shaped sofa variant v2,
+    including optional méridienne support. Variant v2 has the left branch
+    aligned with the bottom. When a méridienne is specified on either
     side, the branch height is reduced and additional keys ``By_`` or
     ``By4_`` are created to hold the reduced heights.
 
@@ -4078,10 +4158,10 @@ def compute_points_U_v3(
     meridienne_len=0,
 ):
     """
-    Compute the key geometry points for a Uâ€‘shaped sofa variant v3,
-    including optional mÃ©ridienne support. Variant v3 is similar to v1
+    Compute the key geometry points for a U‑shaped sofa variant v3,
+    including optional méridienne support. Variant v3 is similar to v1
     but with different layout. As with other variants, specifying a
-    mÃ©ridienne reduces the corresponding branch height and adds ``By_``
+    méridienne reduces the corresponding branch height and adds ``By_``
     or ``By4_`` keys.
 
     See ``compute_points_U_v1`` for parameter descriptions.
@@ -4244,9 +4324,9 @@ def compute_points_U_v4(
     meridienne_len=0,
 ):
     """
-    Compute the key geometry points for a Uâ€‘shaped sofa variant v4,
-    including optional mÃ©ridienne support. Variant v4 has a particular
-    arrangement of the left and right branches. When a mÃ©ridienne is
+    Compute the key geometry points for a U‑shaped sofa variant v4,
+    including optional méridienne support. Variant v4 has a particular
+    arrangement of the left and right branches. When a méridienne is
     specified, the back height on that side is reduced, and keys
     ``By_`` and/or ``By4_`` are added as appropriate.
 
@@ -4383,13 +4463,13 @@ def build_polys_U_v4(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
     polys["split_flags"]={"left":split_left,"bottom":split_bottom,"right":split_right}
     return polys, draw
 
-# ---------- Dossiers par cÃ´tÃ©s (U) ----------
+# ---------- Dossiers par côtés (U) ----------
 def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
     """
-    Build the groups of polygons for the backs (dossiers) of a Uâ€‘shaped sofa.
+    Build the groups of polygons for the backs (dossiers) of a U‑shaped sofa.
 
     This version honours ``By_`` and ``By4_`` when present, so that the
-    dossier height is limited by the mÃ©ridienne. Each group is a dict of
+    dossier height is limited by the méridienne. Each group is a dict of
     lists keyed by the back segment (left D1/D2, bottom D3, right D4/D5).
     """
     groups = {
@@ -4404,11 +4484,11 @@ def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
 
     if variant == "v1":
         if draw["D1"]:
-            # D1 gauche â€” rectangle(s) vertical(aux) avec scission alignÃ©e sur la banquette gauche
+            # D1 gauche — rectangle(s) vertical(aux) avec scission alignée sur la banquette gauche
             x0, x1 = 0, F0x
-            # portion de dossier au-dessus de l'assise : de Fy.y jusqu'Ã  By_use.y
+            # portion de dossier au-dessus de l'assise : de Fy.y jusqu'à By_use.y
             y0, y1 = pts["Fy"][1], By_use[1]
-            # bornes complÃ¨tes de l'assise gauche pour calculer la scission (Fy.y â†’ By.y)
+            # bornes complètes de l'assise gauche pour calculer la scission (Fy.y → By.y)
             seat_y0, seat_y1 = pts["Fy"][1], pts["By"][1]
             groups["left"]["D1"] += _build_dossier_vertical_rects(x0, x1, y0, y1, seat_y0, seat_y1)
         if draw["D2"]:
@@ -4438,11 +4518,11 @@ def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
                 pts["D02x"],
             ])
         if draw["D5"]:
-            # D5 droite â€” rectangle(s) vertical(aux) avec scission alignÃ©e sur la banquette droite
+            # D5 droite — rectangle(s) vertical(aux) avec scission alignée sur la banquette droite
             x0 = pts["D02x"][0]
             y1 = F0y + profondeur
             y_top = By4_use[1]
-            # Utilise les bornes de l'assise droite pour dÃ©terminer la scission (Fy3.y â†’ By4_use.y)
+            # Utilise les bornes de l'assise droite pour déterminer la scission (Fy3.y → By4_use.y)
             groups["right"]["D5"] += _build_dossier_vertical_rects(
                 x0, tx, y1, y_top,
                 pts["Fy3"][1], By4_use[1]
@@ -4450,9 +4530,9 @@ def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
 
     elif variant == "v2":
         if draw["D1"]:
-            # D1 gauche â€” scission alignÃ©e sur la banquette gauche
+            # D1 gauche — scission alignée sur la banquette gauche
             x0, x1 = 0, F0x
-            # inclut la lame basse : zone 0 â†’ By_use.y
+            # inclut la lame basse : zone 0 → By_use.y
             y0, y1 = 0, By_use[1]
             seat_y0, seat_y1 = pts["Fy"][1], pts["By"][1]
             groups["left"]["D1"] += _build_dossier_vertical_rects(
@@ -4505,7 +4585,7 @@ def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
                 pts["Dx2"],
             ])
         if draw["D5"]:
-            # D5 droite pour v2 : un unique rectangle 0 â†’ By4_use scindÃ© une seule fois.
+            # D5 droite pour v2 : un unique rectangle 0 → By4_use scindé une seule fois.
             # Use the exact banquette split height if available to align the
             # backrest scission.  The seat on the right branch starts at
             # 'profondeur' (depth) and ends at By4_use.y.  When a split height
@@ -4534,7 +4614,7 @@ def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
 
     elif variant == "v3":
         if draw["D1"]:
-            # D1 gauche â€” scission alignÃ©e sur la banquette gauche
+            # D1 gauche — scission alignée sur la banquette gauche
             x0, x1 = 0, F0x
             y0, y1 = pts["Fy"][1], By_use[1]
             seat_y0, seat_y1 = pts["Fy"][1], pts["By"][1]
@@ -4568,7 +4648,7 @@ def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
                 pts["Dx"],
             ])
         if draw["D5"]:
-            # D5 droite pour v3 : un unique rectangle 0 â†’ By4_use scindÃ© une seule fois.
+            # D5 droite pour v3 : un unique rectangle 0 → By4_use scindé une seule fois.
             # Use the exact banquette split height if available to align the
             # backrest scission.  The seat on the right branch starts at
             # 'profondeur' (depth) and ends at By4_use.y.  When a split height
@@ -4597,9 +4677,9 @@ def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
 
     else:  # v4
         if draw["D1"]:
-            # D1 gauche â€” scission alignÃ©e sur la banquette gauche, incluant la lame basse
+            # D1 gauche — scission alignée sur la banquette gauche, incluant la lame basse
             x0, x1 = 0, F0x
-            # inclut la lame basse : zone 0 â†’ By_use.y
+            # inclut la lame basse : zone 0 → By_use.y
             y0, y1 = 0, By_use[1]
             # fallback pour Fy : si absent, utiliser F0y
             seat_y0_left = (pts.get("Fy", [None, None])[1] if "Fy" in pts else F0y)
@@ -4676,14 +4756,14 @@ def _dossiers_groups_U(variant, pts, tx, profondeur, draw):
                 ])
         if draw["D5"]:
             y_top = By4_use[1]
-            # D5 droite â€” scission alignÃ©e sur la banquette droite au-dessus de l'assise
-            # fallback pour seat_y0_right : Fy3.y si prÃ©sent, sinon Fy.y, sinon F0y+profondeur
+            # D5 droite — scission alignée sur la banquette droite au-dessus de l'assise
+            # fallback pour seat_y0_right : Fy3.y si présent, sinon Fy.y, sinon F0y+profondeur
             seat_y0_right = (
                 pts.get("Fy3", [None, None])[1] if "Fy3" in pts else (
                     pts.get("Fy", [None, None])[1] if "Fy" in pts else F0y + profondeur
                 )
             )
-            # zone au-dessus de l'assise : F0y+profondeur â†’ y_top
+            # zone au-dessus de l'assise : F0y+profondeur → y_top
             groups["right"]["D5"] += _build_dossier_vertical_rects(
                 F02x, tx, F0y + profondeur, y_top,
                 seat_y0_right, By4_use[1]
@@ -4698,12 +4778,12 @@ def _append_groups_to_polys_U(polys, groups):
                 polys["dossiers"].append(poly)
     polys["dossiers_by_side"] = groups  # info
 
-# === AUTO optimisÃ© pour U (taille + orientation) ===
+# === AUTO optimisé pour U (taille + orientation) ===
 def _best_orientation_score_U(variant, pts, drawn, size, traversins=None):
     """
-    Determine the optimal orientation for placing cushions in a Uâ€‘shaped sofa.
+    Determine the optimal orientation for placing cushions in a U‑shaped sofa.
 
-    This version considers potential mÃ©ridienne limits by using the
+    This version considers potential méridienne limits by using the
     ``By_``/``By4_`` keys for the left and right branches when present.
 
     Parameters
@@ -4734,7 +4814,7 @@ def _best_orientation_score_U(variant, pts, drawn, size, traversins=None):
     def cnt_v(y0, y1):
         return int(max(0, y1 - y0) // size)
 
-    # vertical limits: take mÃ©ridienne into account if present
+    # vertical limits: take méridienne into account if present
     y_end_L = pts.get("By_", pts["By"])[1]
     y_end_R = pts.get("By4_", pts["By4"])[1]
     if traversins:
@@ -4777,7 +4857,7 @@ def _choose_cushion_size_auto_U(variant, pts, drawn, traversins=None):
 
 def _draw_cushions_variant_U(t, tr, variant, pts, size, drawn, traversins=None):
     """
-    Draw cushions for the Uâ€‘shaped sofa, taking a possible mÃ©ridienne into account.
+    Draw cushions for the U‑shaped sofa, taking a possible méridienne into account.
 
     This function uses ``_best_orientation_score_U`` to determine the optimal
     placement and then draws cushions on the bottom and both branches. The
@@ -4876,15 +4956,15 @@ def _render_common_U(
     meridienne_len=0,
 ):
     """
-    Common rendering routine for all Uâ€‘shaped sofa variants.
+    Common rendering routine for all U‑shaped sofa variants.
 
     This function computes the geometry via ``compute_fn`` (passing
     through ``meridienne_side`` and ``meridienne_len``), builds the
     polygons via ``build_fn``, draws the backs, seats, armrests,
     cushions and traversins, and prints a textual report. The window
-    title is augmented to display the mÃ©ridienne configuration.
+    title is augmented to display the méridienne configuration.
     """
-    # Compute points with mÃ©ridienne parameters
+    # Compute points with méridienne parameters
     pts = compute_fn(
         tx,
         ty_left,
@@ -4925,8 +5005,8 @@ def _render_common_U(
     screen = turtle.Screen()
     screen.setup(WIN_W, WIN_H)
     screen.title(
-        f"{window_title} â€” {variant} â€” tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} â€” prof={profondeur}"
-        f" â€” mÃ©ridienne {meridienne_side or '-'}={meridienne_len}"
+        f"{window_title} — {variant} — tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur}"
+        f" — méridienne {meridienne_side or '-'}={meridienne_len}"
     )
     t = turtle.Turtle(visible=False)
     t.speed(0)
@@ -4958,25 +5038,27 @@ def _render_common_U(
         t, tr, -25, 0, tx, f"{tx} cm"
     )
 
-    # Label seats
+    # Label seats : afficher les dimensions sur deux lignes. Décaler légèrement selon l'orientation et la position.
     banquette_sizes = []
     for poly in polys["banquettes"]:
         L, P = banquette_dims(poly)
         banquette_sizes.append((L, P))
+        # Première dimension sans unité suivie d'un « x », seconde avec « cm »
+        text = f"{L}x\n{P} cm"
         xs = [p[0] for p in poly]
         ys = [p[1] for p in poly]
         bb_w = max(xs) - min(xs)
         bb_h = max(ys) - min(ys)
-        text = f"{L}Ã—{P} cm"
+        # Si la banquette est plus haute que large, décaler horizontalement en fonction de sa position
         if bb_h >= bb_w:
             cx = sum(xs) / len(xs)
-            dx = (CUSHION_DEPTH + 10) if cx < tx / 2 else -(
-                CUSHION_DEPTH + 10
-            )
-            label_poly_offset_cm(
-                t, tr, poly, text, dx_cm=dx, dy_cm=0.0
-            )
+            # Séparer par rapport à la moitié de la largeur totale (tx) pour savoir à quel côté se trouve la banquette
+            # Réduction d'environ 3 cm par rapport aux offsets précédents :
+            # Branche gauche (cx < tx/2) : CUSHION_DEPTH+7 ; branche droite : -(CUSHION_DEPTH-8)
+            dx = (CUSHION_DEPTH + 7) if cx < tx / 2.0 else -(CUSHION_DEPTH - 8)
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
         else:
+            # Si la banquette est plus large que haute, centrer simplement
             label_poly(t, tr, poly, text)
 
     # Label backs and armrests
@@ -4996,13 +5078,13 @@ def _render_common_U(
         cushions_count = _draw_cushions_variant_U(
             t, tr, variant, pts, size, drawn, traversins=trv
         )
-        total_line = f"{coussins} â†’ {cushions_count} Ã— {size} cm"
+        total_line = f"{coussins} → {cushions_count} × {size} cm"
     elif spec["mode"] == "fixed":
         size = int(spec["fixed"])
         cushions_count = _draw_cushions_variant_U(
             t, tr, variant, pts, size, drawn, traversins=trv
         )
-        total_line = f"{coussins} â†’ {cushions_count} Ã— {size} cm"
+        total_line = f"{coussins} → {cushions_count} × {size} cm"
     else:
         best = _optimize_valise_U(
             variant,
@@ -5035,11 +5117,15 @@ def _render_common_U(
             sizes["gauche"],
             sizes["droite"],
         )
-        total_line = _format_valise_counts_console({"bas": sb, "gauche": sg, "droite": sd}, best["counts"], cushions_count)
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
 
     # Title and legend
     draw_title_center(
-        t, tr, tx, ty_canvas, "CanapÃ© en U sans angle"
+        t, tr, tx, ty_canvas, "Canapé en U sans angle"
     )
     draw_legend(
         t, tr, tx, ty_canvas, items=legend_items, pos="top-center"
@@ -5061,21 +5147,24 @@ def _render_common_U(
     )
 
     # Print report
-    print(f"=== Rapport canapÃ© U (variant {variant}) ===")
+    print(f"=== Rapport canapé U (variant {variant}) ===")
     print(
-        f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} â€” prof={profondeur}"
+        f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur}"
     )
     print(
-        f"MÃ©ridienne : {meridienne_side or '-'} ({meridienne_len} cm)"
+        f"Méridienne : {meridienne_side or '-'} ({meridienne_len} cm)"
     )
     print(
-        f"Banquettes : {len(polys['banquettes'])} â†’ {banquette_sizes}"
+        f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}"
     )
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
     print(
-        f"Dossiers : {len(polys['dossiers'])} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}"
+        f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}"
     )
-    print("Banquettes dâ€™angle : 0")
-    print(f"Traversins : {n_traversins} Ã— 70x30")
+    print("Banquettes d’angle : 0")
+    print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
     turtle.done()
 
@@ -5098,29 +5187,29 @@ def render_U_v1(
     meridienne_len=0,
 ):
     """
-    Render a Uâ€‘shaped sofa variant v1, optionally with a mÃ©ridienne.
+    Render a U‑shaped sofa variant v1, optionally with a méridienne.
 
-    Validates that the mÃ©ridienne does not conflict with an armrest on the
+    Validates that the méridienne does not conflict with an armrest on the
     same side or with a missing back, then delegates to the common render
     function. All parameters are forwarded along.
     """
     if meridienne_side == "g":
         if acc_left:
             raise ValueError(
-                "MÃ©ridienne gauche interdite avec accoudoir gauche."
+                "Méridienne gauche interdite avec accoudoir gauche."
             )
         if not dossier_left:
             raise ValueError(
-                "MÃ©ridienne gauche impossible sans dossier gauche."
+                "Méridienne gauche impossible sans dossier gauche."
             )
     if meridienne_side == "d":
         if acc_right:
             raise ValueError(
-                "MÃ©ridienne droite interdite avec accoudoir droit."
+                "Méridienne droite interdite avec accoudoir droit."
             )
         if not dossier_right:
             raise ValueError(
-                "MÃ©ridienne droite impossible sans dossier droit."
+                "Méridienne droite impossible sans dossier droit."
             )
     _render_common_U(
         "v1",
@@ -5163,27 +5252,27 @@ def render_U_v2(
     meridienne_len=0,
 ):
     """
-    Render a Uâ€‘shaped sofa variant v2, with optional mÃ©ridienne.
-    Validations ensure the mÃ©ridienne does not conflict with an armrest
+    Render a U‑shaped sofa variant v2, with optional méridienne.
+    Validations ensure the méridienne does not conflict with an armrest
     on the same side and that the relevant back exists.
     """
     if meridienne_side == "g":
         if acc_left:
             raise ValueError(
-                "MÃ©ridienne gauche interdite avec accoudoir gauche."
+                "Méridienne gauche interdite avec accoudoir gauche."
             )
         if not dossier_left:
             raise ValueError(
-                "MÃ©ridienne gauche impossible sans dossier gauche."
+                "Méridienne gauche impossible sans dossier gauche."
             )
     if meridienne_side == "d":
         if acc_right:
             raise ValueError(
-                "MÃ©ridienne droite interdite avec accoudoir droit."
+                "Méridienne droite interdite avec accoudoir droit."
             )
         if not dossier_right:
             raise ValueError(
-                "MÃ©ridienne droite impossible sans dossier droit."
+                "Méridienne droite impossible sans dossier droit."
             )
     _render_common_U(
         "v2",
@@ -5226,27 +5315,27 @@ def render_U_v3(
     meridienne_len=0,
 ):
     """
-    Render a Uâ€‘shaped sofa variant v3, with optional mÃ©ridienne.
+    Render a U‑shaped sofa variant v3, with optional méridienne.
     Performs the same validations as other variants before delegating
     to the common render function.
     """
     if meridienne_side == "g":
         if acc_left:
             raise ValueError(
-                "MÃ©ridienne gauche interdite avec accoudoir gauche."
+                "Méridienne gauche interdite avec accoudoir gauche."
             )
         if not dossier_left:
             raise ValueError(
-                "MÃ©ridienne gauche impossible sans dossier gauche."
+                "Méridienne gauche impossible sans dossier gauche."
             )
     if meridienne_side == "d":
         if acc_right:
             raise ValueError(
-                "MÃ©ridienne droite interdite avec accoudoir droit."
+                "Méridienne droite interdite avec accoudoir droit."
             )
         if not dossier_right:
             raise ValueError(
-                "MÃ©ridienne droite impossible sans dossier droit."
+                "Méridienne droite impossible sans dossier droit."
             )
     _render_common_U(
         "v3",
@@ -5289,27 +5378,27 @@ def render_U_v4(
     meridienne_len=0,
 ):
     """
-    Render a Uâ€‘shaped sofa variant v4, with optional mÃ©ridienne.
-    Ensures the mÃ©ridienne is compatible with armrests and backs before
+    Render a U‑shaped sofa variant v4, with optional méridienne.
+    Ensures the méridienne is compatible with armrests and backs before
     delegating to the common render routine.
     """
     if meridienne_side == "g":
         if acc_left:
             raise ValueError(
-                "MÃ©ridienne gauche interdite avec accoudoir gauche."
+                "Méridienne gauche interdite avec accoudoir gauche."
             )
         if not dossier_left:
             raise ValueError(
-                "MÃ©ridienne gauche impossible sans dossier gauche."
+                "Méridienne gauche impossible sans dossier gauche."
             )
     if meridienne_side == "d":
         if acc_right:
             raise ValueError(
-                "MÃ©ridienne droite interdite avec accoudoir droit."
+                "Méridienne droite interdite avec accoudoir droit."
             )
         if not dossier_right:
             raise ValueError(
-                "MÃ©ridienne droite impossible sans dossier droit."
+                "Méridienne droite impossible sans dossier droit."
             )
     _render_common_U(
         "v4",
@@ -5333,7 +5422,7 @@ def render_U_v4(
         meridienne_len=meridienne_len,
     )
 
-# ---------- AUTO sÃ©lection U ----------
+# ---------- AUTO sélection U ----------
 def _metrics_U(
     variant,
     tx,
@@ -5350,18 +5439,18 @@ def _metrics_U(
     meridienne_len=0,
 ):
     """
-    Compute metrics used to automatically select the best Uâ€‘shaped sofa variant.
+    Compute metrics used to automatically select the best U‑shaped sofa variant.
 
-    Returns a 4â€‘tuple:
+    Returns a 4‑tuple:
       (nb_banquettes, scissions, nb_le_200, ok)
 
     - nb_banquettes : number of seat polygons after internal splits
     - scissions     : number of extra splits beyond the base 3 (left, bottom, right)
-    - nb_le_200     : number of seats whose longest dimension â‰¤ 200 cm
+    - nb_le_200     : number of seats whose longest dimension ≤ 200 cm
     - ok            : True if no seat exceeds MAX_BANQUETTE (250 cm), False otherwise
 
     Additional parameters ``meridienne_side`` and ``meridienne_len`` are
-    forwarded to the geometry computation to account for a mÃ©ridienne.
+    forwarded to the geometry computation to account for a méridienne.
     """
     comp = {
         "v1": compute_points_U_v1,
@@ -5414,7 +5503,7 @@ def _metrics_U(
     except ValueError:
         ok = False
 
-    # Count seats with largest dimension â‰¤ 200 cm
+    # Count seats with largest dimension ≤ 200 cm
     nb_le_200 = sum(
         1 for p in polys["banquettes"] if banquette_dims(p)[0] <= 200
     )
@@ -5436,37 +5525,37 @@ def render_U(
     variant="auto",
     traversins=None,
     couleurs=None,
-    window_title="U â€” auto",
+    window_title="U — auto",
     meridienne_side=None,
     meridienne_len=0,
 ):
     """
-    Highâ€‘level entry point to render a Uâ€‘shaped sofa. Automatically selects
+    High‑level entry point to render a U‑shaped sofa. Automatically selects
     an appropriate variant unless one is specified, taking into account
-    mÃ©ridienne parameters. Validations ensure a mÃ©ridienne does not
+    méridienne parameters. Validations ensure a méridienne does not
     conflict with armrests or absent backs.
 
     Parameters are the same as for individual render functions, with
     additional ``meridienne_side`` and ``meridienne_len``.
     """
-    # Validate mÃ©ridienne configuration
+    # Validate méridienne configuration
     if meridienne_side == "g":
         if acc_left:
             raise ValueError(
-                "MÃ©ridienne gauche interdite avec accoudoir gauche."
+                "Méridienne gauche interdite avec accoudoir gauche."
             )
         if not dossier_left:
             raise ValueError(
-                "MÃ©ridienne gauche impossible sans dossier gauche."
+                "Méridienne gauche impossible sans dossier gauche."
             )
     if meridienne_side == "d":
         if acc_right:
             raise ValueError(
-                "MÃ©ridienne droite interdite avec accoudoir droit."
+                "Méridienne droite interdite avec accoudoir droit."
             )
         if not dossier_right:
             raise ValueError(
-                "MÃ©ridienne droite impossible sans dossier droit."
+                "Méridienne droite impossible sans dossier droit."
             )
 
     v = (variant or "auto").lower()
@@ -5529,12 +5618,12 @@ def render_U(
     min_b = min(metrics[vv][0] for vv in ok_variants)
     tied = [vv for vv in ok_variants if metrics[vv][0] == min_b]
 
-    # 3) Among ties, maximize number of seats â‰¤ 200 cm
+    # 3) Among ties, maximize number of seats ≤ 200 cm
     if len(tied) > 1:
         max_le200 = max(metrics[vv][2] for vv in tied)
         tied = [vv for vv in tied if metrics[vv][2] == max_le200]
 
-    # Final tieâ€‘break: stable preference order
+    # Final tie‑break: stable preference order
     choice = None
     for pref in ["v2", "v1", "v3", "v4"]:
         if pref in tied:
@@ -5574,21 +5663,21 @@ def compute_points_simple_S1(tx,
                              acc_left=True, acc_right=True,
                              meridienne_side=None, meridienne_len=0):
     if meridienne_side == 'g' and acc_left:
-        raise ValueError("MÃ©ridienne gauche interdite avec accoudoir gauche.")
+        raise ValueError("Méridienne gauche interdite avec accoudoir gauche.")
     if meridienne_side == 'd' and acc_right:
-        raise ValueError("MÃ©ridienne droite interdite avec accoudoir droit.")
+        raise ValueError("Méridienne droite interdite avec accoudoir droit.")
 
     xL_in = ACCOUDOIR_THICK if acc_left  else 0
     xR_in = tx - (ACCOUDOIR_THICK if acc_right else 0)
     y_base = DOSSIER_THICK if dossier else 0
-    # profondeur passÃ©e = profondeur d'assise
+    # profondeur passée = profondeur d'assise
     prof_tot = profondeur + y_base  # profondeur TOTALE dossier + assise
 
     pts = {}
-    # Axe Y du canapÃ© : de 0 (sol) Ã  prof_tot
+    # Axe Y du canapé : de 0 (sol) à prof_tot
     pts["Ay"]  = (0, 0);          pts["Ay2"] = (0, prof_tot)
     pts["Ax"]  = (tx, 0);         pts["Ax2"] = (tx, prof_tot)
-    # Banquette et assise : dÃ©marre Ã  y_base et monte jusqu'Ã  prof_tot
+    # Banquette et assise : démarre à y_base et monte jusqu'à prof_tot
     pts["B0"]  = (xL_in, y_base); pts["By"]  = (xL_in, prof_tot)
     pts["Bx"]  = (xR_in, y_base); pts["Bx2"] = (xR_in, prof_tot)
     # Pieds avant au sol
@@ -5609,7 +5698,7 @@ def compute_points_simple_S1(tx,
 def build_polys_simple_S1(pts, dossier=True, acc_left=True, acc_right=True,
                           meridienne_side=None, meridienne_len=0):
     polys = {"banquettes": [], "dossiers": [], "accoudoirs": []}
-    # --- Ajout pour scission de dossier si banquette scindÃ©e ---
+    # --- Ajout pour scission de dossier si banquette scindée ---
     mid_x = None
 
     ban = [pts["By"], pts["B0"], pts["Bx"], pts["Bx2"], pts["By"]]
@@ -5629,7 +5718,7 @@ def build_polys_simple_S1(pts, dossier=True, acc_left=True, acc_right=True,
         if meridienne_side == 'g' and meridienne_len > 0: x0 = pts["D0_m"][0]
         if meridienne_side == 'd' and meridienne_len > 0: x1 = pts["Dx_m"][0]
         if x1 > x0 + 1e-6:
-            # Si banquette scindÃ©e et mid_x tombe dans le segment â†’ scinder le dossier aussi
+            # Si banquette scindée et mid_x tombe dans le segment → scinder le dossier aussi
             if (mid_x is not None) and (x0 < mid_x < x1):
                 left_dossier  = [(x0,0), (mid_x,0), (mid_x,DOSSIER_THICK), (x0,DOSSIER_THICK), (x0,0)]
                 right_dossier = [(mid_x,0), (x1,0), (x1,DOSSIER_THICK), (mid_x,DOSSIER_THICK), (mid_x,0)]
@@ -5696,7 +5785,7 @@ def render_Simple1(tx,
                    coussins="auto",
                    traversins=None,
                    couleurs=None,
-                   window_title="CanapÃ© simple 1"):
+                   window_title="Canapé simple 1"):
     pts   = compute_points_simple_S1(tx, profondeur, dossier, acc_left, acc_right,
                                      meridienne_side, meridienne_len)
     polys = build_polys_simple_S1(pts, dossier, acc_left, acc_right,
@@ -5711,12 +5800,12 @@ def render_Simple1(tx,
     prof_tot = profondeur + y_base
 
     screen = turtle.Screen(); screen.setup(WIN_W, WIN_H)
-    screen.title(f"{window_title} â€” tx={tx} / prof={profondeur} â€” mÃ©ridienne {meridienne_side or '-'}={meridienne_len} â€” coussins={coussins}")
+    screen.title(f"{window_title} — tx={tx} / prof={profondeur} — méridienne {meridienne_side or '-'}={meridienne_len} — coussins={coussins}")
     t = turtle.Turtle(visible=False); t.speed(0); screen.tracer(False)
-    # utiliser la profondeur totale pour le repÃ¨re
+    # utiliser la profondeur totale pour le repère
     tr = WorldToScreen(tx, prof_tot, WIN_W, WIN_H, PAD_PX, ZOOM)
 
-    # (Quadrillage et repÃ¨res supprimÃ©s)
+    # (Quadrillage et repères supprimés)
 
     for p in polys["dossiers"]:
         if _poly_has_area(p):  draw_polygon_cm(t, tr, p, fill=COLOR_DOSSIER)
@@ -5728,7 +5817,7 @@ def render_Simple1(tx,
     # Traversins + comptage (on travaille avec la profondeur totale)
     n_traversins = _draw_traversins_simple_S1(t, tr, pts, prof_tot, dossier, trv)
 
-    # FlÃ¨che de profondeur = profondeur TOTALE (dossier + assise)
+    # Flèche de profondeur = profondeur TOTALE (dossier + assise)
     # - avec dossier: prof_tot = profondeur + DOSSIER_THICK, ex : 80 cm
     # - sans dossier: prof_tot = profondeur, ex : 70 cm
     draw_double_arrow_vertical_cm(
@@ -5741,14 +5830,20 @@ def render_Simple1(tx,
     # Largeur identique
     draw_double_arrow_horizontal_cm(t, tr, -25, 0, tx, f"{tx} cm")
 
-    banquette_sizes=[]
+    banquette_sizes = []
     for poly in polys["banquettes"]:
-        L, P = banquette_dims(poly); banquette_sizes.append((L, P))
-        xs=[p[0] for p in poly]; ys=[p[1] for p in poly]
-        bb_w=max(xs)-min(xs); bb_h=max(ys)-min(ys)
-        text=f"{L}Ã—{P} cm"
-        if bb_h>=bb_w:
-            label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH+10, dy_cm=0.0)
+        L, P = banquette_dims(poly)
+        banquette_sizes.append((L, P))
+        # Première dimension sans unité avec un « x », seconde dimension avec « cm »
+        text = f"{L}x\n{P} cm"
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        bb_w = max(xs) - min(xs)
+        bb_h = max(ys) - min(ys)
+        # Décaler horizontalement si la banquette est plus haute que large, pour éloigner légèrement le texte des coussins
+        # Offset réduit : 3 cm de moins que la version précédente
+        if bb_h >= bb_w:
+            label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
     for p in polys["dossiers"]:
@@ -5766,31 +5861,531 @@ def render_Simple1(tx,
             if "d" in trv: x1 -= TRAVERSIN_THK
         size = _choose_cushion_size_auto_simple_S1(x0, x1)
         nb_coussins = _draw_coussins_simple_S1(t, tr, pts, size, meridienne_side, meridienne_len, traversins=trv)
-        total_line = f"{coussins} â†’ {nb_coussins} Ã— {size} cm"
+        total_line = f"{coussins} → {nb_coussins} × {size} cm"
     elif spec["mode"] == "fixed":
         size = int(spec["fixed"])
         nb_coussins = _draw_coussins_simple_S1(t, tr, pts, size, meridienne_side, meridienne_len, traversins=trv)
-        total_line = f"{coussins} â†’ {nb_coussins} Ã— {size} cm"
+        total_line = f"{coussins} → {nb_coussins} × {size} cm"
     else:
         best = _optimize_valise_simple(pts, spec["range"], meridienne_side, meridienne_len, traversins=trv)
         if not best:
             raise ValueError("Aucune configuration valise valide pour S1.")
         size = best["size"]
         nb_coussins = _draw_simple_with_size(t, tr, pts, size, meridienne_side, meridienne_len, traversins=trv)
-        total_line = f"{nb_coussins} Ã— {size} cm"
+        total_line = f"{nb_coussins} × {size} cm"
 
-    # LÃ©gende
+    # Légende
     draw_legend(t, tr, tx, profondeur, items=legend_items, pos="top-right")
 
     screen.tracer(True); t.hideturtle()
     add_split = int(polys.get("split_flags",{}).get("center",False) and dossier)
-    print("=== Rapport CanapÃ© simple 1 ===")
-    print(f"Dimensions : {tx}Ã—{profondeur} cm")
-    print(f"Banquettes : {len(polys['banquettes'])} â†’ {banquette_sizes}")
-    print(f"Dossiers   : {len(polys['dossiers'])} (+{add_split} via scission)  |  Accoudoirs : {len(polys['accoudoirs'])}")
-    print(f"Banquettes dâ€™angle : 0")
-    print(f"Traversins : {n_traversins} Ã— 70x30")
+    print("=== Rapport Canapé simple 1 ===")
+    print(f"Dimensions : {tx}×{profondeur} cm")
+    print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
+    print(f"Dossiers   : {dossiers_str} (+{add_split} via scission)  |  Accoudoirs : {len(polys['accoudoirs'])}")
+    print(f"Banquettes d’angle : 0")
+    print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins   : {total_line}")
     if meridienne_side:
-        print(f"MÃ©ridienne : cÃ´tÃ© {'gauche' if meridienne_side=='g' else 'droit'} â€” {meridienne_len} cm")
+        print(f"Méridienne : côté {'gauche' if meridienne_side=='g' else 'droit'} — {meridienne_len} cm")
     turtle.done()
+
+# =====================================================================
+# =====================  TESTS ÉTENDUS (30)  ==========================
+# =====================================================================
+
+
+
+
+def TEST_22_LNF_v1_mer_bas_split_TRb_gs():
+    render_LNF(
+        tx=250, ty=260, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="p", variant="v2",
+        traversins="None",
+        window_title="T22 — LNF v1 | méridienne bas | split bas | g:s | TR bas"
+    )
+
+
+def TEST_23_LNF_v1_grand_scission_valise_TRgb_palette():
+    render_LNF(
+        tx=540, ty=360, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="valise", variant="v1",
+        traversins="g,b",
+        couleurs="accoudoirs:gris foncé; assise:gris très clair presque blanc; coussins:#8B7E74",
+        window_title="T23 — LNF v1 | grandes longueurs | valise | TR G+B | palette"
+    )
+
+
+def TEST_24_LNF_v2_mer_gauche_split_TRg_ps():
+    render_LNF(
+        tx=280, ty=360, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=False, acc_bas=True,               # méridienne gauche -> pas d'accoudoir gauche (déjà OFF)
+        meridienne_side='g', meridienne_len=90,
+        coussins="p:s", variant="v2",
+        traversins="g",
+        window_title="T24 — LNF v2 | méridienne G 90 | split gauche | p:s | TR G"
+    )
+
+
+def TEST_25_LNF_v2_mer_bas_split_TRb_auto():
+    render_LNF(
+        tx=520, ty=280, profondeur=80,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=False,               # méridienne bas -> pas d'accoudoir bas
+        meridienne_side='b', meridienne_len=140,
+        coussins="auto", variant="v2",
+        traversins="b",
+        window_title="T25 — LNF v2 | méridienne bas 140 | split bas | auto | TR bas"
+    )
+
+
+def TEST_26_LF_mer_bas_TRgb_palette_dict():
+    render_LF_variant(
+        tx=420, ty=440, profondeur=80,
+        dossier_left=False, dossier_bas=True,
+        acc_left=True, acc_bas=False,               # méridienne bas -> pas d'accoudoir bas
+        meridienne_side='b', meridienne_len=50,
+        coussins="90", traversins="",
+        couleurs={"accoudoirs": "anthracite", "assise": "crème", "coussins": "#c0ffee"},
+        window_title="T26 — LF | méridienne bas 100 | TR G+B | palette dict"
+    )
+
+
+def TEST_27_LF_valise_sans_mer_TRg_split():
+    render_LF_variant(
+        tx=500, ty=500, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="valise", traversins="g",
+        window_title="T27 — LF | valise | sans méridienne | TR G | grandes longueurs"
+    )
+
+
+def TEST_28_S1_TR_both_auto_palette():
+    render_Simple1(
+        tx=260, profondeur=70, dossier=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", traversins="g,d",
+        couleurs="accoudoirs:#444444; assise:#f0f0f0; coussins:#b38b6d",
+        window_title="T28 — S1 | dossier | TR G+D | auto | palette"
+    )
+
+
+def TEST_29_S1_mer_droite_120_no_accR_90_TRg():
+    render_Simple1(
+        tx=320, profondeur=70, dossier=True,
+        acc_left=True, acc_right=False,             # méridienne droite -> pas d'accoudoir droit
+        meridienne_side='d', meridienne_len=120,
+        coussins="90", traversins="g",
+        couleurs=None,
+        window_title="T29 — S1 | méridienne D 120 | accR OFF | 90 | TR G"
+    )
+
+
+def TEST_30_U_v1_left_TRg_auto_no_dossier_droit():
+    render_U(
+        tx=240, ty_left=260, tz_right=260, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=False, acc_bas=True, acc_right=False,
+        coussins="p", variant="v4", traversins=None,
+        meridienne_side='d', meridienne_len=20,
+        window_title="T30 — U v1 | pas de dossier droit | TR G | auto"
+    )
+
+
+def TEST_31_U_v1_TR_both_80_palette():
+    render_U(
+        tx=420, ty_left=400, tz_right=420, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="auto", variant="v4", traversins="",
+        couleurs="accoudoirs:#333333; assise:#f5f5f5; coussins:#a67c52",
+        window_title="T31 — U v1 | TR G+D | 80 | palette"
+    )
+
+
+def TEST_32_U_auto_valise_g():
+    render_U(
+        tx=520, ty_left=420, tz_right=420, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="valise", variant="auto", traversins="g",
+        couleurs=None,
+        window_title="T32 — U auto | valise g"
+    )
+
+
+def TEST_33_U_v3_valise_p_sans_TR():
+    render_U(
+        tx=460, ty_left=380, tz_right=360, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="p", variant="v3", traversins=None,
+        couleurs=None,
+        window_title="T33 — U v3 | valise p | sans TR"
+    )
+
+
+def TEST_34_U_v4_TR_both_75_palette_hex():
+    render_U(
+        tx=300, ty_left=400, tz_right=480, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="75", variant="v4", traversins="g,d",
+        couleurs="accoudoirs:#4b4b4b; assise:#f6f6f6; coussins:#8B7E74",
+        window_title="T34 — U v4 | TR G+D | 75 | palette hex"
+    )
+
+
+def TEST_35_U2F_mer_g_120_no_accL_s_TRd():
+    render_U2f_variant(
+        tx=520, ty_left=450, tz_right=450, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=False, acc_bas=True, acc_right=True,   # méridienne gauche -> pas d'accoudoir gauche
+        meridienne_side='g', meridienne_len=120,
+        coussins="s", traversins="d",
+        window_title="T35 — U2F | méridienne G 120 | accL OFF | s | TR D"
+    )
+
+
+def TEST_36_U2F_mer_d_100_no_accR_80_TRg():
+    render_U2f_variant(
+        tx=520, ty_left=420, tz_right=330, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=False,   # méridienne droite -> pas d'accoudoir droit
+        meridienne_side='d', meridienne_len=100,
+        coussins="g", traversins="g",
+        window_title="T36 — U2F | méridienne D 100 | accR OFF | 80 | TR G"
+    )
+
+
+def TEST_37_U2F_valise_same_TR_both():
+    render_U2f_variant(
+        tx=560, ty_left=540, tz_right=520, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=False, acc_bas=True, acc_right=True,
+        meridienne_side='g', meridienne_len=50,
+        coussins="g:s", traversins="g,d",
+        window_title="T37 — U2F | valise g:s | TR G+D"
+    )
+
+
+def TEST_38_U1F_v1_mer_g_90_no_accL_p_TRd():
+    render_U1F(
+        tx=400, ty_left=280, tz_right=300, profondeur=70,
+        dossier_left=False, dossier_bas=False, dossier_right=True,
+        acc_left=False, acc_right=True,                  # méridienne gauche -> pas d'accoudoir gauche
+        meridienne_side='g', meridienne_len=90,
+        coussins="p", variant="v1",
+        traversins="d",
+        window_title="T38 — U1F v1 | méridienne G 90 | accL OFF | p | TR D"
+    )
+
+
+def TEST_39_U1F_v2_mer_d_110_no_accR_65_TRg():
+    render_U1F(
+        tx=520, ty_left=400, tz_right=420, profondeur=80,
+        dossier_left=False, dossier_bas=False, dossier_right=True,
+        acc_left=True, acc_right=False,                 # méridienne droite -> pas d'accoudoir droit
+        meridienne_side='d', meridienne_len=110,
+        coussins="65", variant="v2",
+        traversins="g",
+        window_title="T39 — U1F v2 | méridienne D 110 | accR OFF | 65 | TR G"
+    )
+
+
+def TEST_40_U1F_v3_TR_both_valise_g_palette():
+    render_U1F(
+        tx=380, ty_left=320, tz_right=300, profondeur=70,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="g", variant="v3",
+        traversins="g,d",
+        couleurs={"accoudoirs": "gris", "assise": "crème", "coussins": "taupe"},
+        window_title="T40 — U1F v3 | TR G+D | valise g | palette dict"
+    )
+
+
+def TEST_41_U1F_v4_valise_TRg():
+    render_U1F(
+        tx=400, ty_left=280, tz_right=320, profondeur=70,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="valise", variant="v4",
+        traversins="g",
+        window_title="T41 — U1F v4 | valise | TR G"
+    )
+
+
+def TEST_42_U1F_v4_auto_sans_TR():
+    render_U1F(
+        tx=460, ty_left=400, tz_right=480, profondeur=70,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", variant="v4",
+        traversins=None,
+        window_title="T42 — U1F v4 | auto | pas de TR"
+    )
+
+
+def TEST_43_U1F_v2_grand_split_TRg_palette():
+    render_U1F(
+        tx=520, ty_left=450, tz_right=430, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="p:s", variant="v2",
+        traversins="g",
+        couleurs="accoudoirs:anthracite; assise:gris très clair; coussins:#e0d9c7",
+        window_title="T43 — U1F v2 | grandes longueurs (scissions) | p:s | TR G | palette"
+    )
+
+
+def TEST_44_U1F_v3_split_droite_TRd_ps():
+    render_U1F(
+        tx=460, ty_left=300, tz_right=360, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="p:s", variant="v3",
+        traversins="d",
+        window_title="T44 — U1F v3 | split droite | p:s | TR D"
+    )
+
+
+def TEST_45_U1F_v4_TR_both_90_palette_dict():
+    render_U1F(
+        tx=420, ty_left=300, tz_right=300, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="90", variant="v4",
+        traversins="g,d",
+        couleurs={"accoudoirs": "gris", "assise": "blanc", "coussins": "#8B7E74"},
+        window_title="T45 — U1F v4 | TR G+D | 90 | palette dict"
+    )
+
+
+def TEST_46_LNF_v1_palette_lighten_dossiers_auto():
+    render_LNF(
+        tx=300, ty=280, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="80", variant="v1",
+        traversins=None,
+        couleurs={"accoudoirs": "anthracite fonce", "assise": "gris très clair", "coussins": "#b5651d"},
+        window_title="T46 — LNF v1 | palette lighten dossiers auto"
+    )
+
+
+def TEST_47_LNF_v2_palette_string_accents_TRb():
+    render_LNF(
+        tx=320, ty=300, profondeur=80,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", variant="v2",
+        traversins="b",
+        couleurs="accoudoirs:gris; dossiers:gris clair; assise:crème; coussins:taupe",
+        window_title="T47 — LNF v2 | palette string (accents) | TR bas"
+    )
+
+
+def TEST_48_S1_sans_dossier_TR_both_auto():
+    render_Simple1(
+        tx=300, profondeur=70, dossier=False,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", traversins="g,d",
+        couleurs=None,
+        window_title="T48 — S1 | sans dossier | TR G+D | auto"
+    )
+
+
+def TEST_49_LF_valise_same_TRg():
+    render_LF_variant(
+        tx=460, ty=460, profondeur=70,
+        dossier_left=True, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="valise", traversins="g",
+        couleurs=None,
+        window_title="T49 — LF | valise | TR G | mêmes longueurs"
+    )
+
+
+def TEST_50_U_v2_valise_same_TRg_palette():
+    render_U(
+        tx=460, ty_left=460, tz_right=460, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=True,
+        coussins="valise", variant="v2", traversins="g",
+        couleurs="accoudoirs:#444444; assise:#f0f0f0; coussins:#b38b6d",
+        window_title="T50 — U v2 | valise | TR G | mêmes longueurs | palette"
+    )
+
+
+def TEST_51_LNF_auto_dossier_bas_seul_TRb():
+    # LNF : uniquement dossier bas, choix de variante automatique
+    render_LNF(
+        tx=280, ty=220, profondeur=70,
+        dossier_left=False, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", variant="auto",
+        traversins="b",
+        couleurs="accoudoirs:gris; assise:gris très clair; coussins:taupe",
+        window_title="T51 — LNF auto | dossier bas seul | TR bas"
+    )
+
+
+def TEST_52_LNF_auto_dossier_gauche_seul_TRg_palette_dict():
+    # LNF : uniquement dossier gauche, test de variant=auto + palette dictionnaire
+    render_LNF(
+        tx=240, ty=360, profondeur=70,
+        dossier_left=False, dossier_bas=True,
+        acc_left=True, acc_bas=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="65", variant="auto",
+        traversins=None,
+        couleurs={"accoudoirs": "anthracite",
+                  "assise": "gris très clair",
+                  "coussins": "#c8ad7f"},
+        window_title="T52 — LNF auto | dossier gauche seul | TR G | palette dict"
+    )
+
+
+def TEST_53_U1F_auto_TR_both_auto_palette():
+    # U1F : 3 dossiers, TR gauche + droite, choix auto de la variante
+    render_U1F(
+        tx=520, ty_left=360, tz_right=380, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="auto", variant="auto",
+        traversins="g,d",
+        couleurs="accoudoirs:gris foncé; assise:gris très clair; coussins:taupe",
+        window_title="T53 — U1F auto | TR G+D | palette"
+    )
+
+
+def TEST_54_U1F_v3_dossiers_gauche_et_bas_TRg():
+    # U1F : variante v3 forcée, dossiers gauche + bas uniquement
+    render_U1F(
+        tx=420, ty_left=320, tz_right=280, profondeur=75,
+        dossier_left=True, dossier_bas=True, dossier_right=False,
+        acc_left=True, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="p", variant="v3",
+        traversins="g",
+        window_title="T54 — U1F v3 | dossiers G+bas | TR G"
+    )
+
+
+def TEST_55_U1F_v4_dossier_droit_seul_TRd_palette():
+    # U1F : variante v4 forcée, uniquement dossier droit (cas limite pour D5 / couture Dx2–Bx)
+    render_U1F(
+        tx=450, ty_left=280, tz_right=340, profondeur=70,
+        dossier_left=False, dossier_bas=False, dossier_right=True,
+        acc_left=False, acc_right=True,
+        meridienne_side=None, meridienne_len=0,
+        coussins="s", variant="v4",
+        traversins="d",
+        couleurs="accoudoirs:gris; assise:blanc cassé; coussins:#b5651d",
+        window_title="T55 — U1F v4 | dossier droit seul | TR D | palette"
+    )
+
+def TEST_56_U_v1_mer_g_120_no_accL_TRg():
+    """
+    U v1 avec méridienne gauche 120 cm :
+    - dossier gauche et bas présents
+    - pas d'accoudoir gauche (acc_left=False obligatoire)
+    - méridienne sur branche gauche (meridienne_side='g')
+    - traversin à gauche
+    """
+    render_U(
+        tx=520, ty_left=450, tz_right=420, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=False, acc_bas=True, acc_right=True,
+        meridienne_side="g", meridienne_len=120,
+        coussins="auto", variant="v1",
+        traversins="g",
+        couleurs="accoudoirs:anthracite; assise:gris très clair; coussins:taupe",
+        window_title="T56 — U v1 | méridienne G 120 | accL OFF | TR G"
+    )
+
+
+def TEST_57_U_v2_mer_d_100_no_accR_TRd():
+    """
+    U v2 avec méridienne droite 100 cm :
+    - dossier droit et bas présents
+    - pas d'accoudoir droit (acc_right=False obligatoire)
+    - méridienne sur branche droite (meridienne_side='d')
+    - traversin à droite
+    """
+    render_U(
+        tx=580, ty_left=430, tz_right=460, profondeur=80,
+        dossier_left=True, dossier_bas=True, dossier_right=True,
+        acc_left=True, acc_bas=True, acc_right=False,
+        meridienne_side="d", meridienne_len=100,
+        coussins="80", variant="v2",
+        traversins="d",
+        couleurs="accoudoirs:#444444; assise:#f0f0f0; coussins:#b38b6d",
+        window_title="T57 — U v2 | méridienne D 100 | accR OFF | TR D"
+    )
+
+if __name__ == "__main__":
+    #TEST_21_LNF_v1_mer_gauche_split_TRg_p()
+    #TEST_22_LNF_v1_mer_bas_split_TRb_gs()
+    #TEST_23_LNF_v1_grand_scission_valise_TRgb_palette()
+    #TEST_24_LNF_v2_mer_gauche_split_TRg_ps()
+    #TEST_25_LNF_v2_mer_bas_split_TRb_auto()
+    #TEST_26_LF_mer_bas_TRgb_palette_dict()
+    #TEST_27_LF_valise_sans_mer_TRg_split()
+    #TEST_28_S1_TR_both_auto_palette()
+    #TEST_29_S1_mer_droite_120_no_accR_90_TRg()
+    #TEST_30_U_v1_left_TRg_auto_no_dossier_droit()
+    #TEST_31_U_v1_TR_both_80_palette()
+    #TEST_32_U_auto_valise_g()
+    #TEST_33_U_v3_valise_p_sans_TR()
+    #TEST_34_U_v4_TR_both_75_palette_hex()
+    #TEST_35_U2F_mer_g_120_no_accL_s_TRd()
+    TEST_36_U2F_mer_d_100_no_accR_80_TRg()
+    #TEST_37_U2F_valise_same_TR_both()
+    #TEST_38_U1F_v1_mer_g_90_no_accL_p_TRd()
+    #TEST_39_U1F_v2_mer_d_110_no_accR_65_TRg()
+    #TEST_40_U1F_v3_TR_both_valise_g_palette()
+    #TEST_41_U1F_v4_valise_TRg()
+    #TEST_42_U1F_v4_auto_sans_TR()
+    #TEST_43_U1F_v2_grand_split_TRg_palette()
+    #TEST_44_U1F_v3_split_droite_TRd_ps()
+    #TEST_45_U1F_v4_TR_both_90_palette_dict()
+    #TEST_46_LNF_v1_palette_lighten_dossiers_auto()
+    #TEST_47_LNF_v2_palette_string_accents_TRb()
+    #TEST_48_S1_sans_dossier_TR_both_auto()
+    #TEST_49_LF_valise_same_TRg()
+    #TEST_50_U_v2_valise_same_TRg_palette()
+    #TEST_51_LNF_auto_dossier_bas_seul_TRb()
+    #TEST_52_LNF_auto_dossier_gauche_seul_TRg_palette_dict()
+    #TEST_53_U1F_auto_TR_both_auto_palette()
+    #TEST_54_U1F_v3_dossiers_gauche_et_bas_TRg()
+    #TEST_55_U1F_v4_dossier_droit_seul_TRd_palette()
+    #TEST_56_U_v1_mer_g_120_no_accL_TRg()
+    #TEST_57_U_v2_mer_d_100_no_accR_TRd()
+    pass
