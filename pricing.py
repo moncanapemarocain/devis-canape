@@ -19,8 +19,10 @@ PRIX_TTC = {
         'auto': 0  # Calculé selon la taille optimale
     },
     'supports': {
-        'banquette': 250,
-        'banquette_angle': 250,
+        # Prix de vente TTC
+        # Banquette et banquette d'angle sont toutes deux facturées 225€ l'unité selon le cahier des charges.
+        'banquette': 225,
+        'banquette_angle': 225,
         'accoudoir': 225,
         'dossier': 250
     },
@@ -35,7 +37,8 @@ PRIX_TTC = {
 COEF_MOUSSE_TTC = {
     'D25': 16 * 25,
     'D30': 16 * 30,
-    'HR35': 16 * 37,
+    # HR35 utilise un coefficient 35 au lieu de 37 pour correspondre au calcul souhaité (16*35)
+    'HR35': 16 * 35,
     'HR45': 16 * 47
 }
 
@@ -149,13 +152,48 @@ def estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, type_coussins):
         nb_coussins = max(2, int(largeur_totale / taille))
         return nb_coussins, taille
     else:
-        # Type fixe spécifié
+        # Type fixe spécifié : calculer le nombre de coussins par section de banquette
         try:
             taille = int(type_coussins)
-            nb_coussins = max(2, int(tx / taille))
-            return nb_coussins, taille
-        except:
-            return 4, 80  # Valeur par défaut
+        except Exception:
+            # Valeur par défaut
+            taille = 80
+        import math
+        # Déterminer la longueur utile de chaque banquette pour placer des coussins
+        bench_lengths = []
+        type_lower = type_canape.lower()
+        if "simple" in type_lower:
+            bench_lengths = [tx]
+        elif "l" in type_lower:
+            # Pour les canapés en L, deux banquettes principales : bas et gauche
+            # On soustrait la profondeur au côté vertical pour retirer la portion de l'angle
+            bench_lengths = [tx]
+            if ty:
+                bench_lengths.append(max(0, ty - profondeur))
+        elif "u" in type_lower:
+            # Pour les canapés en U, trois banquettes principales : bas, gauche, droite
+            bench_lengths = [tx]
+            if ty:
+                bench_lengths.append(max(0, ty - profondeur))
+            if tz:
+                bench_lengths.append(max(0, tz - profondeur))
+        else:
+            bench_lengths = [tx]
+
+        nb_coussins = 0
+        for lng in bench_lengths:
+            # Nombre de coussins par banquette : on prend la partie entière de la division
+            try:
+                count = math.floor(lng / taille)
+                if count < 1:
+                    count = 1
+            except Exception:
+                count = 1
+            nb_coussins += count
+        # Toujours au moins 2 coussins au total
+        if nb_coussins < 2:
+            nb_coussins = 2
+        return nb_coussins, taille
 
 
 def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
@@ -255,6 +293,7 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     # DOSSIERS
     # ======================================================================
     
+    # Détermination du nombre de dossiers.
     nb_dossiers = 0
     if dossier_left:
         nb_dossiers += 1
@@ -262,7 +301,12 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
         nb_dossiers += 1
     if dossier_right:
         nb_dossiers += 1
-    
+    # Si le canapé possède un angle (L avec angle ou U) alors le nombre de dossiers
+    # doit au minimum correspondre au nombre de banquettes pour couvrir chaque segment.
+    type_lower = type_canape.lower()
+    if ("angle" in type_lower or "lf" in type_lower or "u" in type_lower) and nb_dossiers < nb_banquettes:
+        nb_dossiers = nb_banquettes
+
     prix_dossiers_ttc = nb_dossiers * PRIX_TTC['supports']['dossier']
     details['Dossiers'] = prix_dossiers_ttc
     prix_ttc_total += prix_dossiers_ttc
