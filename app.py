@@ -1,6 +1,7 @@
 """
 Application Streamlit pour générer des devis de canapés sur mesure
 Compatible Streamlit Cloud - Utilise canapematplot.py
+VERSION MODIFIÉE : Schémas agrandis
 """
 
 import streamlit as st
@@ -135,12 +136,14 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
 def generer_schema_canape(type_canape, tx, ty, tz, profondeur, 
                           acc_left, acc_right, acc_bas,
                           dossier_left, dossier_bas, dossier_right,
                           meridienne_side, meridienne_len, coussins="auto"):
     """Génère le schéma du canapé"""
-    fig = plt.figure(figsize=(12, 8))
+    # 🔧 MODIFICATION : Taille augmentée de 12x8 à 16x12 (33% plus grand)
+    fig = plt.figure(figsize=(16, 12))
     
     try:
         if "Simple" in type_canape:
@@ -194,38 +197,50 @@ def generer_schema_canape(type_canape, tx, ty, tz, profondeur,
         return fig
     except Exception as e:
         plt.close()
-        raise Exception(f"Erreur lors de la génération du schéma : {str(e)}")
-
-# Initialiser les variables de session
-if 'type_canape' not in st.session_state:
-    st.session_state.type_canape = "Simple (S)"
-if 'tx' not in st.session_state:
-    st.session_state.tx = 280
-if 'ty' not in st.session_state:
-    st.session_state.ty = 250
-if 'tz' not in st.session_state:
-    st.session_state.tz = 250
-if 'profondeur' not in st.session_state:
-    st.session_state.profondeur = 70
+        st.error(f"Erreur lors de la génération : {str(e)}")
+        return None
 
 # En-tête
-st.title("Configurez votre canapé marocain personnalisé")
+st.title("🛋️ Configurateur de Canapé Marocain")
 st.markdown("Créez votre canapé marocain personnalisé et obtenez un devis instantané")
-st.markdown("---")
 
 # Création des onglets
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Type", "Dimensions", "Options", "Matériaux", "Client"])
 
+# Initialisation des variables de session
+if 'type_canape' not in st.session_state:
+    st.session_state.type_canape = "Simple"
+if 'tx' not in st.session_state:
+    st.session_state.tx = 200
+if 'ty' not in st.session_state:
+    st.session_state.ty = 200
+if 'tz' not in st.session_state:
+    st.session_state.tz = 200
+if 'profondeur' not in st.session_state:
+    st.session_state.profondeur = 70
+
 # ONGLET 1: TYPE
 with tab1:
-    st.markdown("### Sélectionnez le type de canapé")
-    
-    type_canape = st.selectbox(
-        "Type de canapé",
-        ["Simple (S)", "L - Sans Angle", "L - Avec Angle (LF)", 
-         "U - Sans Angle", "U - 1 Angle (U1F)", "U - 2 Angles (U2F)"],
-        key="type_canape"
+    st.markdown("### Choisissez le type de canapé")
+    type_canape = st.radio(
+        "Type de configuration",
+        ["Simple", "L - Sans Angle", "L - Avec Angle", "U - Sans Angle", "U - 1 Angle", "U - 2 Angles"],
+        index=0
     )
+    st.session_state.type_canape = type_canape
+    
+    if "Simple" in type_canape:
+        st.info("💡 Canapé droit simple, idéal pour les petits espaces")
+    elif "L - Sans Angle" in type_canape:
+        st.info("💡 Canapé en L sans angle arrondi, configuration classique")
+    elif "L - Avec Angle" in type_canape:
+        st.info("💡 Canapé en L avec angle arrondi pour plus de confort")
+    elif "U - Sans Angle" in type_canape:
+        st.info("💡 Canapé en U sans angles arrondis")
+    elif "U - 1 Angle" in type_canape:
+        st.info("💡 Canapé en U avec 1 angle arrondi")
+    elif "U - 2 Angles" in type_canape:
+        st.info("💡 Canapé en U avec 2 angles arrondis")
 
 # ONGLET 2: DIMENSIONS
 with tab2:
@@ -234,17 +249,17 @@ with tab2:
     col1, col2 = st.columns(2)
     
     with col1:
-        if "Simple" in st.session_state.type_canape:
-            tx = st.number_input("Largeur (Tx)", min_value=100, max_value=600, value=280, step=10, key="tx")
-            ty = tz = None
-        elif "L" in st.session_state.type_canape:
-            tx = st.number_input("Largeur bas (Tx)", min_value=100, max_value=600, value=350, step=10, key="tx")
-            ty = st.number_input("Hauteur gauche (Ty)", min_value=100, max_value=600, value=250, step=10, key="ty")
-            tz = None
-        else:  # U
-            tx = st.number_input("Largeur bas (Tx)", min_value=100, max_value=600, value=450, step=10, key="tx")
-            ty = st.number_input("Hauteur gauche (Ty)", min_value=100, max_value=600, value=300, step=10, key="ty")
-            tz = st.number_input("Hauteur droite (Tz)", min_value=100, max_value=600, value=280, step=10, key="tz")
+        tx = st.number_input("Largeur totale (TX)", min_value=100, max_value=600, value=200, step=10, key="tx")
+        
+        if "L" in st.session_state.type_canape or "U" in st.session_state.type_canape:
+            ty = st.number_input("Hauteur gauche (TY)", min_value=100, max_value=400, value=200, step=10, key="ty")
+        else:
+            ty = 0
+            
+        if "U" in st.session_state.type_canape:
+            tz = st.number_input("Hauteur droite (TZ)", min_value=100, max_value=400, value=200, step=10, key="tz")
+        else:
+            tz = 0
     
     with col2:
         profondeur = st.number_input("Profondeur d'assise", min_value=50, max_value=120, value=70, step=5, key="profondeur")
@@ -392,7 +407,8 @@ with tab5:
                         )
                         
                         img_buffer = BytesIO()
-                        fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
+                        # 🔧 MODIFICATION : DPI augmenté de 150 à 200 pour meilleure qualité
+                        fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=200)
                         img_buffer.seek(0)
                         plt.close(fig)
                         
