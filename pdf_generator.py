@@ -210,8 +210,14 @@ def generer_pdf_devis(config, prix_details, schema_image=None):
     if schema_image:
         try:
             img = Image(schema_image)
-            avail_width = 18 * cm
-            avail_height = 10 * cm
+            # Pour obtenir un schéma plus grand dans le devis, on étend l’espace
+            # disponible pour l’image. La largeur disponible est fixée à la
+            # largeur utile de la page (`doc.width`), et la hauteur maximale est
+            # augmentée à 13 cm (au lieu de 10 cm) pour offrir une vue plus
+            # détaillée du schéma tout en laissant de la place pour le texte et
+            # le prix.
+            avail_width = doc.width
+            avail_height = 13 * cm
             
             img_w = img.imageWidth
             img_h = img.imageHeight
