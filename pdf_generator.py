@@ -165,8 +165,10 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     ]
     
     client = config['client']
-    if client['nom']: lignes_info.append(f"<b>Nom:</b> {client['nom']}")
-    if client.get('telephone'): lignes_info.append(f"<b>Téléphone:</b> {client['telephone']}")
+    if client['nom']:
+        lignes_info.append(f"<b>Nom:</b> {client['nom']}")
+    if client.get('telephone'):
+        lignes_info.append(f"<b>Téléphone:</b> {client['telephone']}")
     
     elements.append(Paragraph("<br/>".join(lignes_info), header_info_style))
     
@@ -243,7 +245,6 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
 
     elements.append(Spacer(1, 0.5*cm))
 
-
     # 4. PRIX ET REMISE
     montant_ttc = f"{prix_details['total_ttc']:.2f} €"
     elements.append(Paragraph(f"PRIX TOTAL TTC : {montant_ttc}", price_style))
@@ -288,4 +289,3 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     buffer.seek(0)
     return buffer
-
