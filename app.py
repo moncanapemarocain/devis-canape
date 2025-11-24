@@ -191,6 +191,11 @@ def generer_schema_canape(type_canape, tx, ty, tz, profondeur,
             )
         
         fig = plt.gcf()
+        # Supprimer tout titre ou supertitre afin d'éviter l'affichage du nom de variante dans les exports
+        try:
+            fig.suptitle("")
+        except Exception:
+            pass
         return fig
     except Exception as e:
         plt.close()
@@ -265,20 +270,21 @@ with tab3:
         # Pour les canapés en U (U, U1F, U2F) : uniquement gauche et droite sont visibles et pré-cochés.
         # L'accoudoir bas n'est pas visible et n'est pas pris en compte dans le schéma/prix.
         if "U" in st.session_state.type_canape:
+            # Dans le cas des canapés en U : seuls les accoudoirs gauche et droit sont disponibles
             acc_left = st.checkbox("Accoudoir Gauche", value=True)
             acc_right = st.checkbox("Accoudoir Droit", value=True)
-            # bas est forcé à False lorsque le canapé est en U
             acc_bas = False
+        elif "L" in st.session_state.type_canape:
+            # Pour les canapés en L (avec ou sans angle) : on affiche uniquement l'accoudoir gauche et bas
+            acc_left = st.checkbox("Accoudoir Gauche", value=True)
+            # L'accoudoir droit n'est pas proposé pour les configurations en L
+            acc_right = False
+            acc_bas = st.checkbox("Accoudoir Bas", value=True)
         else:
-            # Pour les types Simple et L, les accoudoirs gauche et droite sont visibles et cochés par défaut
+            # Pour les canapés simples : accoudoirs gauche et droit visibles, pas d'accoudoir bas
             acc_left = st.checkbox("Accoudoir Gauche", value=True)
             acc_right = st.checkbox("Accoudoir Droit", value=True)
-            # L'accoudoir bas est proposé uniquement pour les canapés en L
-            if "L" in st.session_state.type_canape:
-                acc_bas = st.checkbox("Accoudoir Bas", value=True)
-            else:
-                # Pour les simples, on n'affiche pas l'accoudoir bas
-                acc_bas = False
+            acc_bas = False
 
         st.markdown("**Dossiers**")
         # Les dossiers sont conservés tels quels : Gauche et Droit visibles selon le type
@@ -353,7 +359,18 @@ with tab6:
     
     if email_client:
         st.info("L'email permet d'envoyer le devis au client")
-    
+
+    # Champ de réduction TTC (optionnel)
+    reduction_ttc = st.number_input(
+        "Réduction (TTC €)",
+        min_value=0.0,
+        value=0.0,
+        step=10.0,
+        help="Saisissez une réduction en euros TTC qui sera appliquée au total."
+    )
+    # Enregistrer la réduction dans la session pour qu'elle soit accessible lors du calcul du devis
+    st.session_state['reduction_ttc'] = reduction_ttc
+
     st.markdown("---")
     st.markdown("### Actions")
 
@@ -363,7 +380,7 @@ with tab6:
         if st.button("👁️ Générer l'Aperçu", use_container_width=True):
             with st.spinner("Génération du schéma en cours..."):
                 try:
-                    # Génération du schéma en utilisant les paramètres de structure et de dimensions
+                    # Générer le schéma avec les paramètres actuels
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -373,54 +390,235 @@ with tab6:
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
                         coussins=type_coussins
                     )
-                    
-                    st.pyplot(fig)
-                    plt.close()
-                    st.success("✅ Schéma généré avec succès !")
-                    
-                    # Calcul du prix
-                    prix_details = calculer_prix_total(
-                        type_canape=st.session_state.type_canape,
-                        tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
-                        profondeur=st.session_state.profondeur,
-                        type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
-                        acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
-                        dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
-                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
-                    )
-                    # Si arrondis est activé, appliquer un supplément de 20€ par banquette et par banquette d'angle
+
+                    # Préparer une fonction utilitaire pour calculer les prix HT
+                    base_params = {
+                        'type_canape': st.session_state.type_canape,
+                        'tx': st.session_state.tx, 'ty': st.session_state.ty, 'tz': st.session_state.tz,
+                        'profondeur': st.session_state.profondeur,
+                        'type_coussins': type_coussins,
+                        'type_mousse': type_mousse, 'epaisseur': epaisseur,
+                        'acc_left': acc_left, 'acc_right': acc_right, 'acc_bas': acc_bas,
+                        'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
+                        'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_supp,
+                        'has_surmatelas': has_surmatelas,
+                        'has_meridienne': has_meridienne,
+                        'meridienne_side': meridienne_side,
+                        'meridienne_len': meridienne_len
+                    }
+                    def price_ht_for(update_dict):
+                        params = base_params.copy()
+                        params.update(update_dict)
+                        return calculer_prix_total(**params)['prix_ht']
+
+                    # Déterminer le nombre de banquettes et d'angles
+                    nb_banquettes, nb_angles = 0, 0
+                    tc = st.session_state.type_canape
+                    if "Simple" in tc:
+                        nb_banquettes, nb_angles = 1, 0
+                    elif "L - Sans Angle" in tc:
+                        nb_banquettes, nb_angles = 2, 0
+                    elif "L - Avec Angle" in tc:
+                        nb_banquettes, nb_angles = 2, 1
+                    elif "U - Sans Angle" in tc:
+                        nb_banquettes, nb_angles = 3, 0
+                    elif "U - 1 Angle" in tc:
+                        nb_banquettes, nb_angles = 3, 1
+                    elif "U - 2 Angles" in tc:
+                        nb_banquettes, nb_angles = 3, 2
+
+                    # Prix de base (banquettes seules avec mousse de base D25 et sans options)
+                    alt_no_extras_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': 'auto', 'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+
+                    # Prix avec accoudoirs uniquement (mousse base)
+                    alt_with_acc_ht = price_ht_for({
+                        'acc_left': acc_left, 'acc_right': acc_right, 'acc_bas': acc_bas,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': 'auto', 'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_acc = max(0, alt_with_acc_ht - alt_no_extras_ht)
+
+                    # Prix avec dossiers uniquement (mousse base)
+                    alt_with_dossier_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
+                        'type_coussins': 'auto', 'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_dossiers = max(0, alt_with_dossier_ht - alt_no_extras_ht)
+
+                    # Prix avec mousse sélectionnée (sans autres options)
+                    alt_with_mousse_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': 'auto', 'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': type_mousse
+                    })
+                    price_mousse = max(0, alt_with_mousse_ht - alt_no_extras_ht)
+
+                    # Prix des coussins (assise + déco + traversins + surmatelas) avec mousse base
+                    alt_with_coussins_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins, 'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_supp, 'has_surmatelas': has_surmatelas,
+                        'type_mousse': 'D25'
+                    })
+                    price_coussins_total = max(0, alt_with_coussins_ht - alt_no_extras_ht)
+
+                    # Total hors arrondis (base + options)
+                    prix_ht_sans_arrondis = alt_no_extras_ht + price_acc + price_dossiers + price_mousse + price_coussins_total
+
+                    # Prix arrondis
+                    suppl_arrondis = 0
                     if arrondis:
-                        # Détermination du nombre de banquettes et de banquettes d'angle selon le type de canapé
-                        nb_banquettes, nb_angles = 0, 0
-                        tc = st.session_state.type_canape
+                        suppl_arrondis = 20 * (nb_banquettes + nb_angles)
+
+                    # Prix total HT
+                    prix_ht_total = prix_ht_sans_arrondis + suppl_arrondis
+
+                    # Récupération de la remise
+                    reduction_ttc = st.session_state.get('reduction_ttc', 0.0) or 0.0
+                    reduction_ht = reduction_ttc / 1.20 if reduction_ttc else 0.0
+
+                    prix_ht_apres_remise = max(0, prix_ht_total - reduction_ht)
+                    tva_apres_remise = round(prix_ht_apres_remise * 0.20, 2)
+                    total_ttc_apres_remise = round(prix_ht_apres_remise + tva_apres_remise, 2)
+
+                    # Quantités
+                    nb_acc_selected = int(acc_left) + int(acc_right) + int(acc_bas)
+                    nb_dossier_selected = int(dossier_left) + int(dossier_bas) + int(dossier_right)
+
+                    # Nombre de coussins d'assise (approximation si dimension numérique)
+                    nb_coussins_assise = 0
+                    try:
+                        couss_dim = int(type_coussins)
+                        bench_lengths = []
                         if "Simple" in tc:
-                            nb_banquettes, nb_angles = 1, 0
-                        elif "L - Sans Angle" in tc:
-                            nb_banquettes, nb_angles = 2, 0
-                        elif "L - Avec Angle" in tc:
-                            nb_banquettes, nb_angles = 2, 1
-                        elif "U - Sans Angle" in tc:
-                            nb_banquettes, nb_angles = 3, 0
-                        elif "U - 1 Angle" in tc:
-                            nb_banquettes, nb_angles = 3, 1
-                        elif "U - 2 Angles" in tc:
-                            nb_banquettes, nb_angles = 3, 2
-                        suppl_arr = 20 * (nb_banquettes + nb_angles)
-                        prix_details['prix_ht'] += suppl_arr
-                        prix_details['tva'] = round(prix_details['prix_ht'] * 0.20, 2)
-                        prix_details['total_ttc'] = round(prix_details['prix_ht'] + prix_details['tva'], 2)
-                    
-                    st.markdown("### 📊 Détails du Devis")
-                    col_p1, col_p2, col_p3 = st.columns(3)
-                    
-                    with col_p1:
-                        st.metric("Prix HT", f"{prix_details['prix_ht']}€")
-                    with col_p2:
-                        st.metric("TVA (20%)", f"{prix_details['tva']}€")
-                    with col_p3:
-                        st.metric("TOTAL TTC", f"{prix_details['total_ttc']}€")
-                    
+                            bench_lengths = [st.session_state.tx]
+                        elif "L" in tc:
+                            bench_lengths = [st.session_state.ty, st.session_state.tx]
+                        else:
+                            bench_lengths = [st.session_state.ty, st.session_state.tx, st.session_state.tz]
+                        import math
+                        for lng in bench_lengths:
+                            nb_coussins_assise += math.ceil(lng / couss_dim)
+                    except Exception:
+                        nb_coussins_assise = 0
+
+                    nb_arrondis_units = nb_banquettes + nb_angles
+
+                    # Construction détaillée du tableau de synthèse
+                    # Prix des coussins par catégorie
+                    # Prix des coussins d'assise uniquement (hors déco/traversins/surmatelas)
+                    alt_only_assise_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins,
+                        'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_assise = max(0, alt_only_assise_ht - alt_no_extras_ht)
+
+                    # Prix avec coussins déco ajoutés
+                    alt_assise_deco_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins,
+                        'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_decoratif = max(0, alt_assise_deco_ht - alt_only_assise_ht)
+
+                    # Prix avec traversins supplémentaires
+                    alt_assise_traversins_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins,
+                        'nb_coussins_deco': 0, 'nb_traversins_supp': nb_traversins_supp, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_traversins = max(0, alt_assise_traversins_ht - alt_only_assise_ht)
+
+                    # Prix avec surmatelas
+                    alt_assise_surmatelas_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins,
+                        'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': True,
+                        'type_mousse': 'D25'
+                    }) if has_surmatelas else alt_only_assise_ht
+                    price_surmatelas = max(0, alt_assise_surmatelas_ht - alt_only_assise_ht) if has_surmatelas else 0
+
+                    # Répartition du prix de la mousse par banquette (proportionnelle à la longueur)
+                    bench_lengths = []
+                    if "Simple" in tc:
+                        bench_lengths = [st.session_state.tx]
+                    elif "L" in tc:
+                        bench_lengths = [st.session_state.ty, st.session_state.tx]
+                    else:
+                        bench_lengths = [st.session_state.ty, st.session_state.tx, st.session_state.tz]
+                    total_length = sum(bench_lengths) if bench_lengths else 1
+                    price_mousse_per_bench = []
+                    for bl in bench_lengths:
+                        part = (price_mousse * bl / total_length) if total_length > 0 else 0
+                        price_mousse_per_bench.append(part)
+
+                    breakdown_rows = []
+                    # Banquettes de base
+                    breakdown_rows.append(("Banquettes", nb_banquettes, f"{alt_no_extras_ht:.2f} €"))
+                    # Accoudoirs
+                    breakdown_rows.append(("Accoudoirs", nb_acc_selected, f"{price_acc:.2f} €"))
+                    # Coussins d'assise
+                    breakdown_rows.append(("Coussins assise", nb_coussins_assise, f"{price_assise:.2f} €"))
+                    # Coussins décoratifs
+                    breakdown_rows.append(("Coussins déco", nb_coussins_deco, f"{price_decoratif:.2f} €"))
+                    # Traversins supplémentaires
+                    breakdown_rows.append(("Traversins", nb_traversins_supp, f"{price_traversins:.2f} €"))
+                    # Surmatelas
+                    breakdown_rows.append(("Surmatelas", 1 if has_surmatelas else 0, f"{price_surmatelas:.2f} €"))
+                    # Dossiers
+                    breakdown_rows.append(("Dossiers", nb_dossier_selected, f"{price_dossiers:.2f} €"))
+                    # Mousse par banquette
+                    for idx, part_price in enumerate(price_mousse_per_bench, start=1):
+                        # Libellé de la dimension : on utilise l'indice de la banquette pour différencier
+                        breakdown_rows.append((f"Mousse {type_mousse} dim.{idx}", 1, f"{part_price:.2f} €"))
+                    # Arrondis
+                    breakdown_rows.append(("Arrondis", nb_arrondis_units, f"{suppl_arrondis:.2f} €"))
+                    # Tissu (inclus)
+                    breakdown_rows.append(("Tissu (inclus)", "", "0.00 €"))
+                    # Remise
+                    if reduction_ttc and reduction_ttc > 0:
+                        breakdown_rows.append(("Remise", "", f"-{reduction_ttc:.2f} €"))
+                    # Livraison
+                    breakdown_rows.append(("Livraison bas d'immeuble/maison", "", "Gratuit"))
+                    # Total TTC après remise
+                    breakdown_rows.append(("Total TTC", "", f"{total_ttc_apres_remise:.2f} €"))
+
+                    # Affichage en deux colonnes (schéma à gauche, tableau à droite)
+                    st.success("✅ Schéma généré avec succès !")
+                    left_c, right_c = st.columns(2)
+                    with left_c:
+                        st.pyplot(fig)
+                        plt.close()
+                    with right_c:
+                        st.markdown("### 📊 Détail du Devis")
+                        import pandas as pd
+                        df_b = pd.DataFrame(breakdown_rows, columns=["Élément", "Quantité", "Prix"])
+                        st.table(df_b)
+
+                    # Stockage des valeurs pour utilisation lors de la génération du PDF
+                    st.session_state['breakdown_rows'] = breakdown_rows
+                    st.session_state['prix_ht'] = prix_ht_apres_remise
+                    st.session_state['tva'] = tva_apres_remise
+                    st.session_state['total_ttc'] = total_ttc_apres_remise
+                    st.session_state['remise_ttc'] = reduction_ttc
+
                 except Exception as e:
                     st.error(f"❌ Erreur : {str(e)}")
 
@@ -487,8 +685,25 @@ with tab6:
                         prix_details['prix_ht'] += suppl_arr
                         prix_details['tva'] = round(prix_details['prix_ht'] * 0.20, 2)
                         prix_details['total_ttc'] = round(prix_details['prix_ht'] + prix_details['tva'], 2)
+
+                    # Application de la réduction TTC si elle existe
+                    reduction_ttc = st.session_state.get('reduction_ttc', 0.0) or 0.0
+                    if reduction_ttc and reduction_ttc > 0:
+                        reduction_ht = reduction_ttc / 1.20
+                        prix_details['prix_ht'] = max(0, prix_details['prix_ht'] - reduction_ht)
+                        prix_details['tva'] = round(prix_details['prix_ht'] * 0.20, 2)
+                        prix_details['total_ttc'] = round(prix_details['prix_ht'] + prix_details['tva'], 2)
+                        prix_details['reduction_ttc'] = reduction_ttc
+                    else:
+                        prix_details['reduction_ttc'] = 0.0
+
+                    # Récupération du tableau détaillé du devis depuis la session
+                    breakdown_rows = st.session_state.get('breakdown_rows', None)
                     
-                    pdf_buffer = generer_pdf_devis(config, prix_details, schema_image=img_buffer)
+                    pdf_buffer = generer_pdf_devis(
+                        config, prix_details, schema_image=img_buffer,
+                        breakdown_rows=breakdown_rows, reduction_ttc=prix_details.get('reduction_ttc', 0.0)
+                    )
                     
                     st.download_button(
                         label="⬇️ Télécharger le Devis PDF",
