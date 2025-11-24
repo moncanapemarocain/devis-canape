@@ -9,6 +9,7 @@ from io import BytesIO
 from PIL import Image
 
 # Import des modules personnalisés
+# Import du nouveau module de pricing (avec angle traité comme banquette)
 from pricing import calculer_prix_total
 from pdf_generator import generer_pdf_devis
 
@@ -599,17 +600,33 @@ with tab6:
                     # Total TTC après remise
                     breakdown_rows.append(("Total TTC", "", f"{total_ttc_apres_remise:.2f} €"))
 
-                    # Affichage en deux colonnes (schéma à gauche, tableau à droite)
+                    # Calcul du prix TTC total avant remise (prix_ht_total converti en TTC)
+                    prix_ttc_total_avant_remise = round(prix_ht_total * 1.20, 2)
+
+                    # Calcul de la marge totale HT : on utilise le coût de revient HT fourni par le module de pricing
+                    prix_details_calc = calculer_prix_total(
+                        type_canape=st.session_state.type_canape,
+                        tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
+                        profondeur=st.session_state.profondeur,
+                        type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
+                        acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
+                        dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
+                    )
+                    cout_revient_ht_total = prix_details_calc.get('cout_revient_ht', 0.0)
+                    marge_totale_ht = round(prix_ht_apres_remise - cout_revient_ht_total, 2)
+
+                    # Affichage du schéma et d'un résumé simplifié du devis
                     st.success("✅ Schéma généré avec succès !")
-                    left_c, right_c = st.columns(2)
-                    with left_c:
-                        st.pyplot(fig)
-                        plt.close()
-                    with right_c:
-                        st.markdown("### 📊 Détail du Devis")
-                        import pandas as pd
-                        df_b = pd.DataFrame(breakdown_rows, columns=["Élément", "Quantité", "Prix"])
-                        st.table(df_b)
+                    st.pyplot(fig)
+                    plt.close()
+                    st.markdown("### 🧾 Résumé du devis", unsafe_allow_html=True)
+                    st.markdown(f"**Prix de vente TTC total avant réduction :** {prix_ttc_total_avant_remise:.2f} €")
+                    if reduction_ttc and reduction_ttc > 0:
+                        st.markdown(f"**Réduction TTC :** -{reduction_ttc:.2f} €")
+                    st.markdown(f"**Prix de vente TTC total après réduction :** {total_ttc_apres_remise:.2f} €")
+                    st.markdown(f"**Marge totale HT :** {marge_totale_ht:.2f} €")
 
                     # Stockage des valeurs pour utilisation lors de la génération du PDF
                     st.session_state['breakdown_rows'] = breakdown_rows
