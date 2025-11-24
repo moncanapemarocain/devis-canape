@@ -1,247 +1,247 @@
-"""
-Générateur de PDF pour les devis de canapés marocains
-VERSION MODIFIÉE : Schéma agrandi à 80% de la largeur du PDF
-"""
-
 from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.lib import colors
 from io import BytesIO
-from PIL import Image as PILImage
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os
+
+# --- POLICE UNICODE ---
+FONT_NAME_UNICODE = 'DejaVuSans'
+FONT_FILE = 'DejaVuSans.ttf'
+
+if os.path.exists(FONT_FILE):
+    pdfmetrics.registerFont(TTFont(FONT_NAME_UNICODE, FONT_FILE))
+    BASE_FONT = FONT_NAME_UNICODE
+else:
+    BASE_FONT = 'Helvetica'
+    print(f"ATTENTION : Le fichier de police {FONT_FILE} est introuvable.")
+# ----------------------
+
+# --- MAPPING DES IMAGES ---
+IMAGE_FILES = {
+    'D25': 'D25.png',
+    'D30': 'D30.png',
+    'HR35': 'HR35.png',
+    'HR45': 'HR45.png'
+}
+
 
 def generer_pdf_devis(config, prix_details, schema_image=None):
     """
-    Génère un PDF de devis avec schéma agrandi à 80% de la largeur
+    Génère un PDF de devis (1 page) avec un pied de page fixe en bas et des images de mousse.
     """
     buffer = BytesIO()
     
-    # Configuration de la page A4
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=2*cm,
-        leftMargin=2*cm,
-        topMargin=2*cm,
-        bottomMargin=2*cm
-    )
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                           rightMargin=1*cm, leftMargin=1*cm,
+                           topMargin=1*cm, bottomMargin=6*cm)
     
-    # Styles
+    elements = []
     styles = getSampleStyleSheet()
     
-    # Style titre principal
-    style_title = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        textColor=colors.HexColor('#372E2B'),
-        spaceAfter=20,
-        alignment=TA_CENTER,
-        fontName='Helvetica-Bold'
+    # --- DÉFINITION DES STYLES ---
+    title_style = ParagraphStyle(
+        'CustomTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.black, 
+        spaceAfter=5, alignment=TA_CENTER, fontName=BASE_FONT + '-Bold'
     )
     
-    # Style sous-titre
-    style_subtitle = ParagraphStyle(
-        'CustomSubtitle',
-        parent=styles['Heading2'],
-        fontSize=12,
-        textColor=colors.HexColor('#8C6F63'),
-        spaceAfter=10,
-        alignment=TA_CENTER,
-        fontName='Helvetica'
+    header_info_style = ParagraphStyle(
+        'HeaderInfo', parent=styles['Normal'], fontSize=12, leading=14, 
+        textColor=colors.black, alignment=TA_CENTER, fontName=BASE_FONT
     )
     
-    # Style texte normal
-    style_normal = ParagraphStyle(
-        'CustomNormal',
-        parent=styles['Normal'],
-        fontSize=10,
-        textColor=colors.HexColor('#372E2B'),
-        spaceAfter=6,
-        fontName='Helvetica'
+    price_style = ParagraphStyle(
+        'PriceStyle', parent=styles['Heading2'], fontSize=16, alignment=TA_CENTER, 
+        fontName=BASE_FONT, textColor=colors.black, spaceBefore=10, spaceAfter=10
     )
     
-    # Style bullet points
-    style_bullet = ParagraphStyle(
-        'CustomBullet',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=colors.HexColor('#372E2B'),
-        leftIndent=20,
-        spaceAfter=4,
-        fontName='Helvetica'
+    # Style de description de mousse
+    description_mousse_style = ParagraphStyle(
+        'MousseDesc', parent=styles['Normal'], fontSize=12, leading=12, 
+        textColor=colors.black, alignment=TA_LEFT, fontName=BASE_FONT
     )
     
-    # Construction du contenu
-    story = []
+    # Styles pour le pied de page
+    column_header_style = ParagraphStyle(
+        'ColumnHeaderStyle', parent=styles['Normal'], fontSize=12, alignment=TA_LEFT, 
+        fontName=BASE_FONT + '-Bold', spaceAfter=10
+    )
+
+    detail_style = ParagraphStyle(
+        'DetailStyle', parent=styles['Normal'], fontSize=12, leading=12, 
+        textColor=colors.black, alignment=TA_LEFT, fontName=BASE_FONT
+    )
     
-    # Titre principal
-    story.append(Paragraph("MON CANAPÉ MAROCAIN", style_title))
+    footer_style = ParagraphStyle(
+        'FooterStyle', parent=styles['Normal'], fontSize=12, textColor=colors.black, 
+        alignment=TA_CENTER, spaceBefore=10, fontName=BASE_FONT
+    )
+
+    # --- FONCTION INTERNE POUR DESSINER LE PIED DE PAGE FIXE ---
+    def draw_footer(canvas, doc):
+        canvas.saveState()
+        
+        # 1. Préparation des données des colonnes
+        
+        # Colonne Gauche
+        col_gauche = []
+        col_gauche.append(Paragraph("Il faut savoir que le tarif comprend :", column_header_style))
+        inclus_items = [
+            "Livraison bas d'immeuble",
+            "Fabrication 100% artisanale France",
+            "Choix du tissu n'impacte pas le devis",
+            "Paiement 2 à 6 fois sans frais",
+            "Livraison 5 à 7 semaines",
+            "Housses déhoussables"
+        ]
+        for item in inclus_items:
+            col_gauche.append(Paragraph(f"• {item}", detail_style))
+
+        # Colonne Droite
+        col_droite = []
+        col_droite.append(Paragraph("Détail des cotations :", column_header_style))
+        
+        h_mousse = config['options'].get('epaisseur', 25)
+        h_assise = 46 if h_mousse > 20 else 40
+        
+        cotations_items = [
+            "Accoudoir: 15cm large / 60cm haut",
+            "Dossier: 10cm large / 70cm haut",
+            "Coussins: 65/80/90cm large",
+            f"Profondeur assise: {config['dimensions']['profondeur']} cm",
+            f"Hauteur assise: {h_assise} cm (Mousse {h_mousse}cm)"
+        ]
+        for item in cotations_items:
+            col_droite.append(Paragraph(f"• {item}", detail_style))
+
+        table_footer = Table([[col_gauche, col_droite]], colWidths=[9.5*cm, 9.5*cm])
+        table_footer.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]))
+        
+        w, h = table_footer.wrap(doc.width, doc.bottomMargin)
+        table_footer.drawOn(canvas, doc.leftMargin, 1.5*cm)
+        
+        # 2. Ville (ex-Partie 6)
+        p_ville = Paragraph("FRÉVENT 62270", footer_style)
+        w_ville, h_ville = p_ville.wrap(doc.width, doc.bottomMargin)
+        p_ville.drawOn(canvas, doc.leftMargin, 0.5*cm)
+        
+        canvas.restoreState()
+
+    # =================== CONTENU DU DOCUMENT ===================
     
-    # Informations principales
-    dimensions = config['dimensions']
-    dim_text = f"{dimensions['tx']} x {dimensions['ty']} x {dimensions['tz']} cm" if dimensions['tz'] > 0 else f"{dimensions['tx']} cm"
+    # 1. TITRE et INFOS HAUTES
+    elements.append(Paragraph("MON CANAPÉ MAROCAIN", title_style))
     
-    info_data = [
-        ["Dimensions:", dim_text],
-        ["Confort:", config['options']['type_mousse']],
-        ["Dossiers:", "Avec" if config['options']['dossier_bas'] else "Sans"],
-        ["Accoudoirs:", "Oui" if config['options']['acc_left'] or config['options']['acc_right'] else "Non"],
-        ["Nom:", config['client']['nom']]
+    type_canape = config['type_canape']
+    dims = config['dimensions']
+    
+    if "U" in type_canape:
+        dim_str = f"{dims.get('ty',0)} x {dims.get('tx',0)} x {dims.get('tz',0)}"
+    elif "L" in type_canape:
+        dim_str = f"{dims.get('ty',0)} x {dims.get('tx',0)}"
+    else:
+        dim_str = f"{dims.get('tx',0)} x {dims.get('profondeur',0)}"
+        
+    mousse_type = config['options'].get('type_mousse', 'HR35')
+    dossier_txt = 'Avec' if config['options'].get('dossier_bas') else 'Sans'
+    acc_txt = 'Oui' if (config['options'].get('acc_left') or config['options'].get('acc_right')) else 'Non'
+
+    lignes_info = [
+        f"<b>Dimensions:</b> {dim_str} cm",
+        f"<b>Confort:</b> {mousse_type}",
+        f"<b>Dossiers:</b> {dossier_txt}",
+        f"<b>Accoudoirs:</b> {acc_txt}"
     ]
     
-    info_table = Table(info_data, colWidths=[4*cm, 10*cm])
-    info_table.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#372E2B')),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-    ]))
-    story.append(info_table)
-    story.append(Spacer(1, 0.5*cm))
+    client = config['client']
+    if client['nom']: lignes_info.append(f"<b>Nom:</b> {client['nom']}")
+    if client.get('telephone'): lignes_info.append(f"<b>Téléphone:</b> {client['telephone']}")
     
-    # Description de la mousse
-    mousse_desc = {
-        'D25': "La mousse D25 est une mousse polyuréthane de 25kg/m3. Elle offre un bon confort pour un usage quotidien.",
+    elements.append(Paragraph("<br/>".join(lignes_info), header_info_style))
+    
+    # Description mousse dynamique
+    descriptions_mousse = {
+        'D25': "La mousse D25 est une mousse polyuréthane de 25kg/m3. Elle est très ferme, parfaite pour les habitués des banquettes marocaines classiques.",
         'D30': "La mousse D30 est une mousse polyuréthane de 30kg/m3. Elle est ultra ferme, idéale pour ceux qui recherchent un canapé très ferme.",
-        'HR35': "La mousse HR35 est une mousse haute résilience de 35kg/m3. Elle offre un excellent soutien et une durabilité supérieure.",
-        'HR45': "La mousse HR45 est une mousse haute résilience de 45kg/m3. C'est notre mousse la plus premium, offrant le meilleur confort et la plus longue durée de vie."
+        'HR35': "La mousse HR35 est une mousse haute résilience de 35kg/m3. Elle est semi ferme confortable, parfaite pour les adeptes des salons confortables.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l’affaissement dans le temps.",
+        'HR45': "La mousse HR45 est une mousse haute résilience de 45kg/m3. Elle est ferme confortable, parfaite pour les adeptes des salons confortables mais pas trop moelleux.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l’affaissement dans le temps."
     }
+    texte_mousse = descriptions_mousse.get(mousse_type, descriptions_mousse['HR35'])
     
-    mousse_type = config['options']['type_mousse']
-    if mousse_type in mousse_desc:
-        story.append(Paragraph(mousse_desc[mousse_type], style_normal))
-        story.append(Spacer(1, 0.5*cm))
+    elements.append(Spacer(1, 0.2*cm))
     
-    # Schéma du canapé - 🔧 MODIFICATION : 80% de la largeur
+    # --- MODIFICATION CLÉ : Image et Texte en Tableau ---
+    image_path = IMAGE_FILES.get(mousse_type)
+    
+    if image_path:
+        try:
+            img_mousse = Image(image_path, width=2.5*cm, height=2.5*cm)
+            text_flowable = Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style)
+            
+            # Ajustement des colWidths pour laisser plus de marge
+            # 18cm de largeur totale disponible (A4 - 2x1cm marge)
+            mousse_table = Table([[img_mousse, text_flowable]], colWidths=[3*cm, 14*cm]) 
+            
+            mousse_table.setStyle(TableStyle([
+                # Centrage vertical par rapport à l'image
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), 
+                # Ajout de padding à gauche et à droite de la table complète pour effet de marge
+                ('LEFTPADDING', (0, 0), (0, 0), 0.5*cm), # Marge à gauche de l'image
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0.5*cm), # Marge à droite du texte
+            ]))
+            elements.append(mousse_table)
+        except Exception:
+            # En cas d'erreur de fichier, afficher le texte seul 
+            elements.append(Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style))
+    else:
+        elements.append(Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style))
+
+    elements.append(Spacer(1, 0.3*cm))
+
+    # 3. SCHÉMA
     if schema_image:
         try:
-            # Ouvrir l'image avec PIL
-            pil_img = PILImage.open(schema_image)
+            img = Image(schema_image)
+            avail_width = 18 * cm
+            avail_height = 10 * cm
             
-            # 🔧 LARGEUR MAXIMALE : 80% de la page A4 (21cm - marges 4cm = 17cm * 0.80 = 13.6cm)
-            max_width = 13.6 * cm
-            max_height = 16 * cm  # Hauteur augmentée pour proportions
+            img_w = img.imageWidth
+            img_h = img.imageHeight
             
-            # Calculer les dimensions en préservant le ratio
-            img_width, img_height = pil_img.size
-            aspect = img_height / float(img_width)
-            
-            # Calculer la largeur finale (on vise 80% de la page)
-            final_width = max_width
-            final_height = final_width * aspect
-            
-            # Si la hauteur dépasse, ajuster
-            if final_height > max_height:
-                final_height = max_height
-                final_width = final_height / aspect
-            
-            # Créer l'image ReportLab
-            img = Image(schema_image, width=final_width, height=final_height)
-            
-            # Centrer l'image
-            img.hAlign = 'CENTER'
-            
-            # Ajouter le titre du schéma
-            type_canape = config['type_canape']
-            variant_info = ""
-            if 'Sans Angle' in type_canape:
-                variant = 'v2' if dimensions['tx'] >= dimensions['ty'] else 'v1'
-                variant_info = f" [{variant}]"
-            
-            schema_title = f"Canapé {type_canape}{variant_info} — "
-            
-            if type_canape == "Simple":
-                schema_title += f"tx={dimensions['tx']} — prof={dimensions['profondeur']}"
-            elif 'L' in type_canape:
-                schema_title += f"tx={dimensions['tx']} / ty={dimensions['ty']} — prof={dimensions['profondeur']}"
-            elif 'U' in type_canape:
-                schema_title += f"tx={dimensions['tx']} / ty(left)={dimensions['ty']} / tz(right)={dimensions['tz']} — prof={dimensions['profondeur']}"
-            
-            # Ajouter méridienne si présente
-            if config['options'].get('meridienne_len', 0) > 0:
-                meridienne_side_text = 'left' if config['options'].get('meridienne_side') == 'left' else 'right'
-                schema_title += f" — méridienne ={meridienne_side_text}"
+            if img_w > 0:
+                aspect = img_h / float(img_w)
             else:
-                schema_title += " — méridienne =0"
+                aspect = 1.0
+
+            if aspect > (avail_height / avail_width):
+                img.drawHeight = avail_height
+                img.drawWidth = avail_height / aspect
+            else:
+                img.drawWidth = avail_width
+                img.drawHeight = avail_width * aspect
             
-            story.append(Paragraph(schema_title, style_subtitle))
-            story.append(Spacer(1, 0.3*cm))
-            story.append(img)
-            story.append(Spacer(1, 0.5*cm))
-            
-        except Exception as e:
-            story.append(Paragraph(f"Erreur lors de l'insertion du schéma: {str(e)}", style_normal))
-            story.append(Spacer(1, 0.5*cm))
+            elements.append(img)
+        except Exception:
+            elements.append(Paragraph("<i>(Schéma non disponible)</i>", header_info_style))
+
+    elements.append(Spacer(1, 0.5*cm))
+
+    # 4. PRIX
+    montant_ttc = f"{prix_details['total_ttc']:.2f} €"
+    elements.append(Paragraph(f"PRIX TOTAL TTC : {montant_ttc}", price_style))
+    elements.append(Paragraph("<hr width='100%' color='black'/>", styles['Normal']))
+
     
-    # Prix total en grand
-    prix_style = ParagraphStyle(
-        'PrixStyle',
-        parent=styles['Heading1'],
-        fontSize=20,
-        textColor=colors.HexColor('#372E2B'),
-        spaceAfter=20,
-        alignment=TA_CENTER,
-        fontName='Helvetica-Bold'
-    )
-    story.append(Paragraph(f"PRIX TOTAL TTC : {prix_details['total_ttc']:.2f} €", prix_style))
-    
-    # Saut de page pour les informations complémentaires
-    story.append(PageBreak())
-    
-    # Informations complémentaires
-    story.append(Paragraph("Il faut savoir que le tarif comprend :", style_subtitle))
-    story.append(Spacer(1, 0.3*cm))
-    
-    inclus = [
-        "Livraison bas d'immeuble",
-        "Fabrication 100% artisanale France",
-        "Choix du tissu n'impacte pas le devis",
-        "Paiement 2 à 6 fois sans frais",
-        "Livraison 5 à 7 semaines",
-        "Housses déhoussables"
-    ]
-    
-    for item in inclus:
-        story.append(Paragraph(f"• {item}", style_bullet))
-    
-    story.append(Spacer(1, 0.5*cm))
-    
-    # Détails techniques
-    story.append(Paragraph("Détail des cotations :", style_subtitle))
-    story.append(Spacer(1, 0.3*cm))
-    
-    details = [
-        "Accoudoir: 15cm large / 60cm haut",
-        "Dossier: 10cm large / 70cm haut",
-        "Coussins: 65/80/90cm large",
-        f"Profondeur assise: {dimensions['profondeur']} cm",
-        f"Hauteur assise: 46 cm (Mousse {config['options']['epaisseur']}cm)"
-    ]
-    
-    for item in details:
-        story.append(Paragraph(f"• {item}", style_bullet))
-    
-    # Contact
-    story.append(Spacer(1, 1*cm))
-    
-    contact_style = ParagraphStyle(
-        'ContactStyle',
-        parent=styles['Normal'],
-        fontSize=10,
-        textColor=colors.HexColor('#8C6F63'),
-        alignment=TA_CENTER,
-        fontName='Helvetica'
-    )
-    
-    if config['client'].get('departement'):
-        story.append(Paragraph(config['client']['departement'], contact_style))
-    
-    # Génération du PDF
-    doc.build(story)
+    # GÉNÉRATION AVEC CALLBACK POUR LE FOOTER
+    doc.build(elements, onFirstPage=draw_footer)
     buffer.seek(0)
-    
     return buffer
+
