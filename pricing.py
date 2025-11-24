@@ -346,12 +346,20 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     if has_meridienne:
         nb_coussins = max(1, nb_coussins - 1)
     
-    prix_unitaire_coussin = PRIX_TTC['coussins'].get(taille_coussin, PRIX_TTC['coussins'][80])
+    # Déterminer si la taille correspond à un coussin standard ou à un coussin valise
+    if taille_coussin not in (65, 80, 90):
+        # Coussin valise : tarif unique
+        prix_unitaire_coussin = PRIX_TTC['coussins']['valise']
+        cout_unitaire_coussin = COUT_REVIENT_HT['coussins']['valise']
+        coussin_label = f'Coussins valise (×{nb_coussins})'
+    else:
+        prix_unitaire_coussin = PRIX_TTC['coussins'].get(taille_coussin, PRIX_TTC['coussins'][80])
+        cout_unitaire_coussin = COUT_REVIENT_HT['coussins'].get(taille_coussin, COUT_REVIENT_HT['coussins'][80])
+        coussin_label = f'Coussins {taille_coussin}cm (×{nb_coussins})'
     prix_coussins_ttc = nb_coussins * prix_unitaire_coussin
-    details[f'Coussins {taille_coussin}cm (×{nb_coussins})'] = prix_coussins_ttc
+    details[coussin_label] = prix_coussins_ttc
     prix_ttc_total += prix_coussins_ttc
     
-    cout_unitaire_coussin = COUT_REVIENT_HT['coussins'].get(taille_coussin, COUT_REVIENT_HT['coussins'][80])
     cout_coussins_ht = nb_coussins * cout_unitaire_coussin
     cout_revient_ht_total += cout_coussins_ht
     
