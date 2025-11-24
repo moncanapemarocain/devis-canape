@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 Module de pricing adapté pour app.py
-Compatible avec la structure existante + calcul de la vraie marge
+Basé sur pricing-2.py avec ajustements pour traiter l'angle comme une banquette supplémentaire
+et exposer les fonctions de calcul utilisées par l'application Streamlit.
 """
 
-# ============================================================================
+# ==========================================================================
 # CONSTANTES DE PRIX
 # ============================================================================
 
@@ -79,9 +80,9 @@ PRIX_TISSU_PETIT_COUT_HT = 11.2
 PRIX_TISSU_GRAND_COUT_HT = 16.16
 SUPPLEMENT_TISSU_COUT_HT = 15
 
-# ============================================================================
+# ==========================================================================
 # FONCTIONS DE CALCUL
-# ============================================================================
+# ==========================================================================
 
 def calculer_prix_mousse_tissu_ttc(longueur, largeur, epaisseur, type_mousse):
     """Calcule le prix TTC mousse + tissu pour une banquette"""
@@ -118,6 +119,9 @@ def estimer_nombre_banquettes(type_canape, tx, ty, tz):
     if "Simple" in type_canape:
         return 1
     elif "L" in type_canape:
+        # pour les canapés en L avec angle, on considère 3 banquettes
+        if "Angle" in type_canape or "LF" in type_canape:
+            return 3
         return 2
     elif "U" in type_canape:
         return 3
@@ -161,20 +165,20 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
                        nb_coussins_deco, nb_traversins_supp,
                        has_surmatelas, has_meridienne):
     """
-    Calcule le prix total TTC et le coût de revient HT
-    Compatible avec la structure de app.py
+    Calcule le prix total TTC et le coût de revient HT.
+    Traite l'angle comme une banquette supplémentaire pour les modèles en L avec angle.
     
     Returns:
-        dict avec tous les détails + la VRAIE marge
+        dict avec tous les détails + la marge réelle
     """
     
     details = {}
     prix_ttc_total = 0
     cout_revient_ht_total = 0
     
-    # ========================================================================
+    # ======================================================================
     # BANQUETTES (Mousse + Tissu + Support)
-    # ========================================================================
+    # ======================================================================
     
     nb_banquettes = estimer_nombre_banquettes(type_canape, tx, ty, tz)
     
@@ -183,7 +187,16 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     if "Simple" in type_canape:
         banquettes_dims = [(tx, profondeur)]
     elif "L" in type_canape:
-        banquettes_dims = [(tx, profondeur), (ty if ty else 150, profondeur)]
+        # Si canapé en L avec angle (LF) : deux banquettes + une banquette d'angle carrée
+        if "Angle" in type_canape or "LF" in type_canape:
+            banquettes_dims = [
+                (tx, profondeur),
+                (ty if ty else profondeur, profondeur),
+                # Banquette d'angle : carré basé sur la profondeur + 20 cm pour respecter l'exemple 90x90
+                ((profondeur + 20), (profondeur + 20))
+            ]
+        else:
+            banquettes_dims = [(tx, profondeur), (ty if ty else 150, profondeur)]
     elif "U" in type_canape:
         banquettes_dims = [
             (tx, profondeur),
@@ -204,7 +217,26 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
         cout_banquettes_ht += cout_mt
         
         # Support
-        est_angle = ("Angle" in type_canape or "LF" in type_canape or "U2F" in type_canape) and i > 1
+        # Détermination si la banquette courante est une banquette d'angle.
+        # Pour les canapés en L avec angle ("LF" ou contenant "Angle"), la troisième banquette est considérée comme un angle.
+        # Pour les canapés en U avec deux angles ("U - 2 Angles" ou "U2F"), les deuxième et troisième banquettes sont des angles.
+        # Pour les canapés en U avec un seul angle ("U - 1 Angle" ou "U1F"), la deuxième banquette est l'angle.
+        est_angle = False
+        # Normaliser le libellé du type de canapé pour faciliter la recherche de variantes
+        type_lower = type_canape.lower()
+        if "l" in type_lower and ("angle" in type_lower or "lf" in type_lower):
+            # troisième banquette (indice 3) est l'angle
+            if i == len(banquettes_dims):
+                est_angle = True
+        elif "u2f" in type_lower or "u - 2" in type_lower:
+            # deuxième et troisième banquettes sont des angles
+            if i in (2, 3):
+                est_angle = True
+        elif "u1f" in type_lower or "u - 1" in type_lower:
+            # une seule banquette d'angle : on considère la deuxième
+            if i == 2:
+                est_angle = True
+
         if est_angle:
             prix_banquettes_ttc += PRIX_TTC['supports']['banquette_angle']
             cout_banquettes_ht += COUT_REVIENT_HT['supports']['banquette_angle']
@@ -219,9 +251,9 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     prix_ttc_total += prix_banquettes_ttc
     cout_revient_ht_total += cout_banquettes_ht
     
-    # ========================================================================
+    # ======================================================================
     # DOSSIERS
-    # ========================================================================
+    # ======================================================================
     
     nb_dossiers = 0
     if dossier_left:
@@ -239,9 +271,9 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     cout_dossiers_ht = nb_dossiers * COUT_REVIENT_HT['supports']['dossier']
     cout_revient_ht_total += cout_dossiers_ht
     
-    # ========================================================================
+    # ======================================================================
     # ACCOUDOIRS
-    # ========================================================================
+    # ======================================================================
     
     nb_accoudoirs = 0
     if acc_left:
@@ -258,9 +290,9 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     cout_accoudoirs_ht = nb_accoudoirs * COUT_REVIENT_HT['supports']['accoudoir']
     cout_revient_ht_total += cout_accoudoirs_ht
     
-    # ========================================================================
+    # ======================================================================
     # COUSSINS
-    # ========================================================================
+    # ======================================================================
     
     nb_coussins, taille_coussin = estimer_nombre_coussins(
         type_canape, tx, ty, tz, profondeur, type_coussins
@@ -279,9 +311,9 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     cout_coussins_ht = nb_coussins * cout_unitaire_coussin
     cout_revient_ht_total += cout_coussins_ht
     
-    # ========================================================================
+    # ======================================================================
     # ACCESSOIRES
-    # ========================================================================
+    # ======================================================================
     
     # Coussins déco
     if nb_coussins_deco > 0:
@@ -310,15 +342,15 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
         cout_surmat = COUT_REVIENT_HT['accessoires']['surmatelas']
         cout_revient_ht_total += cout_surmat
     
-    # ========================================================================
+    # ======================================================================
     # ARRONDIS (coût uniquement)
-    # ========================================================================
+    # ======================================================================
     
     cout_revient_ht_total += COUT_REVIENT_HT['arrondis']
     
-    # ========================================================================
+    # ======================================================================
     # CALCULS FINAUX
-    # ========================================================================
+    # ======================================================================
     
     # Sous-total et TVA
     sous_total = prix_ttc_total / 1.2
@@ -350,7 +382,7 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     }
 
 
-# ============================================================================
+# ==========================================================================
 # CLASSE POUR COMPATIBILITÉ AVEC NOUVEAU CODE
 # ============================================================================
 
@@ -361,48 +393,7 @@ class CanapePricing:
         pass
     
     def calculer_devis_complet(self, configuration):
-        """Méthode de compatibilité avec le nouveau système"""
+        """Méthode de compatibilité pour le nouveau système"""
         # Convertir la configuration en paramètres pour calculer_prix_total
         # Cette méthode sera utilisée si vous voulez migrer vers le nouveau système
         pass
-
-
-# ============================================================================
-# TEST
-# ============================================================================
-
-if __name__ == "__main__":
-    # Test rapide
-    resultat = calculer_prix_total(
-        type_canape="Simple (S)",
-        tx=280,
-        ty=None,
-        tz=None,
-        profondeur=70,
-        type_coussins="auto",
-        type_mousse="D25",
-        epaisseur=25,
-        acc_left=True,
-        acc_right=True,
-        acc_bas=False,
-        dossier_left=False,
-        dossier_bas=True,
-        dossier_right=False,
-        nb_coussins_deco=2,
-        nb_traversins_supp=0,
-        has_surmatelas=False,
-        has_meridienne=False
-    )
-    
-    print("=" * 60)
-    print("TEST DU MODULE PRICING")
-    print("=" * 60)
-    print(f"Prix TTC total      : {resultat['total_ttc']}€")
-    print(f"Prix HT             : {resultat['prix_ht']}€")
-    print(f"Coût de revient HT  : {resultat['cout_revient_ht']}€")
-    print(f"MARGE HT            : {resultat['marge_ht']}€")
-    print(f"Taux de marge       : {resultat['taux_marge']}%")
-    print("\nDétails :")
-    for item, prix in resultat['details'].items():
-        print(f"  • {item}: {prix}€")
-
