@@ -7,7 +7,7 @@ et exposer les fonctions de calcul utilisées par l'application Streamlit.
 
 # ==========================================================================
 # CONSTANTES DE PRIX
-# ============================================================================
+# ==========================================================================
 
 # Prix de vente TTC
 PRIX_TTC = {
@@ -92,30 +92,24 @@ def calculer_prix_mousse_tissu_ttc(longueur, largeur, epaisseur, type_mousse):
     volume_m3 = (longueur * largeur * epaisseur) / 1000000
     coef = COEF_MOUSSE_TTC.get(type_mousse, COEF_MOUSSE_TTC['D25'])
     prix_mousse = volume_m3 * coef
-    
     condition = largeur + (epaisseur * 2)
     if condition > 140:
         prix_tissu = (longueur / 100) * PRIX_TISSU_GRAND_TTC
     else:
         prix_tissu = (longueur / 100) * PRIX_TISSU_PETIT_TTC
-    
     return prix_mousse + prix_tissu
-
 
 def calculer_cout_mousse_tissu_ht(longueur, largeur, epaisseur, type_mousse):
     """Calcule le coût de revient HT mousse + tissu pour une banquette"""
     volume_m3 = (longueur * largeur * epaisseur) / 1000000
     coef = COEF_MOUSSE_COUT_HT.get(type_mousse, COEF_MOUSSE_COUT_HT['D25'])
     cout_mousse = volume_m3 * coef
-    
     condition = 2 + largeur + (epaisseur * 2)
     if condition <= 140:
         cout_tissu = ((longueur / 100) * PRIX_TISSU_PETIT_COUT_HT) + SUPPLEMENT_TISSU_COUT_HT
     else:
         cout_tissu = ((longueur / 100) * PRIX_TISSU_GRAND_COUT_HT) + SUPPLEMENT_TISSU_COUT_HT
-    
     return cout_mousse + cout_tissu
-
 
 def estimer_nombre_banquettes(type_canape, tx, ty, tz):
     """Estime le nombre de banquettes selon le type de canapé"""
@@ -130,7 +124,6 @@ def estimer_nombre_banquettes(type_canape, tx, ty, tz):
         return 3
     return 1
 
-
 def estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, type_coussins):
     """Estime le nombre et la taille des coussins"""
     # Estimation basique - sera plus précise avec le wrapper canapefullv77
@@ -140,7 +133,6 @@ def estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, type_coussins):
             largeur_totale += (ty if ty else 0)
         if "U" in type_canape and tz:
             largeur_totale += tz
-        
         # Estimation de la taille optimale
         if largeur_totale < 200:
             taille = 65
@@ -148,7 +140,6 @@ def estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, type_coussins):
             taille = 80
         else:
             taille = 90
-        
         nb_coussins = max(2, int(largeur_totale / taille))
         return nb_coussins, taille
     else:
@@ -156,7 +147,6 @@ def estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, type_coussins):
         try:
             taille = int(type_coussins)
         except Exception:
-            # Valeur par défaut
             taille = 80
         import math
         # Déterminer la longueur utile de chaque banquette pour placer des coussins
@@ -165,13 +155,10 @@ def estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, type_coussins):
         if "simple" in type_lower:
             bench_lengths = [tx]
         elif "l" in type_lower:
-            # Pour les canapés en L, deux banquettes principales : bas et gauche
-            # On soustrait la profondeur au côté vertical pour retirer la portion de l'angle
             bench_lengths = [tx]
             if ty:
                 bench_lengths.append(max(0, ty - profondeur))
         elif "u" in type_lower:
-            # Pour les canapés en U, trois banquettes principales : bas, gauche, droite
             bench_lengths = [tx]
             if ty:
                 bench_lengths.append(max(0, ty - profondeur))
@@ -179,10 +166,8 @@ def estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, type_coussins):
                 bench_lengths.append(max(0, tz - profondeur))
         else:
             bench_lengths = [tx]
-
         nb_coussins = 0
         for lng in bench_lengths:
-            # Nombre de coussins par banquette : on prend la partie entière de la division
             try:
                 count = math.floor(lng / taille)
                 if count < 1:
@@ -190,165 +175,251 @@ def estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, type_coussins):
             except Exception:
                 count = 1
             nb_coussins += count
-        # Toujours au moins 2 coussins au total
         if nb_coussins < 2:
             nb_coussins = 2
         return nb_coussins, taille
 
-
 def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
-                       type_coussins, type_mousse, epaisseur,
-                       acc_left, acc_right, acc_bas,
-                       dossier_left, dossier_bas, dossier_right,
-                       nb_coussins_deco, nb_traversins_supp,
-                       has_surmatelas, has_meridienne):
+                        type_coussins, type_mousse, epaisseur,
+                        acc_left, acc_right, acc_bas,
+                        dossier_left, dossier_bas, dossier_right,
+                        nb_coussins_deco, nb_traversins_supp,
+                        has_surmatelas, has_meridienne):
     """
     Calcule le prix total TTC et le coût de revient HT.
     Traite l'angle comme une banquette supplémentaire pour les modèles en L avec angle.
-    
+
     Returns:
         dict avec tous les détails + la marge réelle
     """
-    
     details = {}
     prix_ttc_total = 0
     cout_revient_ht_total = 0
-    
     # ======================================================================
     # BANQUETTES (Mousse + Tissu + Support)
     # ======================================================================
-    
-    nb_banquettes = estimer_nombre_banquettes(type_canape, tx, ty, tz)
-    
-    # Estimation des dimensions des banquettes
-    banquettes_dims = []
-    if "Simple" in type_canape:
-        banquettes_dims = [(tx, profondeur)]
-    elif "L" in type_canape:
-        # Si canapé en L avec angle (LF) : deux banquettes + une banquette d'angle carrée
-        if "Angle" in type_canape or "LF" in type_canape:
-            banquettes_dims = [
-                (tx, profondeur),
-                (ty if ty else profondeur, profondeur),
-                # Banquette d'angle : carré basé sur la profondeur + 20 cm pour respecter l'exemple 90x90
-                ((profondeur + 20), (profondeur + 20))
-            ]
-        else:
-            banquettes_dims = [(tx, profondeur), (ty if ty else 150, profondeur)]
-    elif "U" in type_canape:
-        banquettes_dims = [
-            (tx, profondeur),
-            (ty if ty else 150, profondeur),
-            (tz if tz else 150, profondeur)
-        ]
-    
     prix_banquettes_ttc = 0
     cout_banquettes_ht = 0
-    
-    for i, (longueur, largeur) in enumerate(banquettes_dims, 1):
-        # Prix mousse + tissu TTC
+    # Normaliser le type de canapé
+    type_lower = type_canape.lower() if isinstance(type_canape, str) else ""
+    banquettes_dims = []
+    angle_dims = []
+    segmentation_used = False
+    try:
+        import importlib
+        canape_mod = importlib.import_module("canapfullv81matplot")
+        # Gestion spécifique des canapés en L avec angle (LF)
+        if "lf" in type_lower:
+            # Calcul des points et des polygones du schéma
+            pts = canape_mod.compute_points_LF_variant(
+                tx,
+                ty,
+                profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                meridienne_side=None,
+                meridienne_len=0,
+            )
+            polys = canape_mod.build_polys_LF_variant(
+                pts,
+                tx,
+                ty,
+                profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                meridienne_side=None,
+                meridienne_len=0,
+            )
+            # Récupérer les dimensions de chaque assise (banquettes) et de l'angle
+            banquettes_dims = [
+                canape_mod.banquette_dims(poly) for poly in polys.get("banquettes", [])
+            ]
+            angle_dims = [
+                canape_mod.banquette_dims(poly) for poly in polys.get("angle", [])
+            ]
+            # Déterminer le nombre de dossiers en utilisant la fonction pondérée
+            # et en tenant compte des scissions (split_flags)
+            dossiers_count = canape_mod._compute_dossiers_count(polys)
+            split_flags = polys.get("split_flags", {})
+            add_split = int(split_flags.get("left", False) and dossier_left) + int(
+                split_flags.get("bottom", False) and dossier_bas
+            )
+            seg_nb_dossiers = int(round(dossiers_count)) + add_split
+            # Nombre d'accoudoirs : chaque polygone d'accoudoir représente un accoudoir
+            seg_nb_accoudoirs = len(polys.get("accoudoirs", []))
+            # Conserver les points pour l'estimation des coussins auto
+            seg_pts = pts
+            segmentation_used = True
+    except Exception:
+        segmentation_used = False
+    if not segmentation_used:
+        nb_banquettes = estimer_nombre_banquettes(type_canape, tx, ty, tz)
+        if "simple" in type_lower:
+            banquettes_dims = [(tx, profondeur)]
+        elif "l" in type_lower:
+            if "angle" in type_lower or "lf" in type_lower:
+                banquettes_dims = [
+                    (tx, profondeur),
+                    (ty if ty else profondeur, profondeur),
+                ]
+                angle_dims = [(profondeur + 20, profondeur + 20)]
+            else:
+                banquettes_dims = [(tx, profondeur), (ty if ty else 150, profondeur)]
+        elif "u" in type_lower:
+            banquettes_dims = [
+                (tx, profondeur),
+                (ty if ty else 150, profondeur),
+                (tz if tz else 150, profondeur),
+            ]
+        else:
+            banquettes_dims = [(tx, profondeur)]
+    # Mousse + tissu + support pour banquettes hors angle
+    for longueur, largeur in banquettes_dims:
         prix_mt = calculer_prix_mousse_tissu_ttc(longueur, largeur, epaisseur, type_mousse)
         prix_banquettes_ttc += prix_mt
-        
-        # Coût mousse + tissu HT
         cout_mt = calculer_cout_mousse_tissu_ht(longueur, largeur, epaisseur, type_mousse)
         cout_banquettes_ht += cout_mt
-        
-        # Support
-        # Détermination si la banquette courante est une banquette d'angle.
-        # Pour les canapés en L avec angle ("LF" ou contenant "Angle"), la troisième banquette est considérée comme un angle.
-        # Pour les canapés en U avec deux angles ("U - 2 Angles" ou "U2F"), les deuxième et troisième banquettes sont des angles.
-        # Pour les canapés en U avec un seul angle ("U - 1 Angle" ou "U1F"), la deuxième banquette est l'angle.
-        est_angle = False
-        # Normaliser le libellé du type de canapé pour faciliter la recherche de variantes
-        type_lower = type_canape.lower()
-        if "l" in type_lower and ("angle" in type_lower or "lf" in type_lower):
-            # troisième banquette (indice 3) est l'angle
-            if i == len(banquettes_dims):
-                est_angle = True
-        elif "u2f" in type_lower or "u - 2" in type_lower:
-            # deuxième et troisième banquettes sont des angles
-            if i in (2, 3):
-                est_angle = True
-        elif "u1f" in type_lower or "u - 1" in type_lower:
-            # une seule banquette d'angle : on considère la deuxième
-            if i == 2:
-                est_angle = True
-
-        if est_angle:
-            prix_banquettes_ttc += PRIX_TTC['supports']['banquette_angle']
-            cout_banquettes_ht += COUT_REVIENT_HT['supports']['banquette_angle']
+        prix_banquettes_ttc += PRIX_TTC['supports']['banquette']
+        if longueur <= 200:
+            cout_banquettes_ht += COUT_REVIENT_HT['supports']['banquette']
         else:
-            prix_banquettes_ttc += PRIX_TTC['supports']['banquette']
-            if longueur <= 200:
-                cout_banquettes_ht += COUT_REVIENT_HT['supports']['banquette']
-            else:
-                cout_banquettes_ht += COUT_REVIENT_HT['supports']['banquette_long']
-    
+            cout_banquettes_ht += COUT_REVIENT_HT['supports']['banquette_long']
+    # Mousse + tissu + support pour banquettes d'angle
+    for longueur, largeur in angle_dims:
+        prix_mt = calculer_prix_mousse_tissu_ttc(longueur, largeur, epaisseur, type_mousse)
+        prix_banquettes_ttc += prix_mt
+        cout_mt = calculer_cout_mousse_tissu_ht(longueur, largeur, epaisseur, type_mousse)
+        cout_banquettes_ht += cout_mt
+        prix_banquettes_ttc += PRIX_TTC['supports']['banquette_angle']
+        cout_banquettes_ht += COUT_REVIENT_HT['supports']['banquette_angle']
+    nb_banquettes_effectif = len(banquettes_dims) + len(angle_dims)
     details['Banquettes (mousse + tissu + support)'] = round(prix_banquettes_ttc, 2)
     prix_ttc_total += prix_banquettes_ttc
     cout_revient_ht_total += cout_banquettes_ht
-    
     # ======================================================================
     # DOSSIERS
     # ======================================================================
-    
-    # Détermination du nombre de dossiers.
     nb_dossiers = 0
-    if dossier_left:
-        nb_dossiers += 1
-    if dossier_bas:
-        nb_dossiers += 1
-    if dossier_right:
-        nb_dossiers += 1
-    # Si le canapé possède un angle (L avec angle ou U) alors le nombre de dossiers
-    # doit au minimum correspondre au nombre de banquettes pour couvrir chaque segment.
-    type_lower = type_canape.lower()
-    if ("angle" in type_lower or "lf" in type_lower or "u" in type_lower) and nb_dossiers < nb_banquettes:
-        nb_dossiers = nb_banquettes
-
+    if 'seg_nb_dossiers' in locals():
+        nb_dossiers = seg_nb_dossiers
+    else:
+        if dossier_left:
+            nb_dossiers += 1
+        if dossier_bas:
+            nb_dossiers += 1
+        if dossier_right:
+            nb_dossiers += 1
+        if ("angle" in type_lower or "lf" in type_lower or "u" in type_lower) and nb_dossiers < nb_banquettes_effectif:
+            nb_dossiers = nb_banquettes_effectif
     prix_dossiers_ttc = nb_dossiers * PRIX_TTC['supports']['dossier']
     details['Dossiers'] = prix_dossiers_ttc
     prix_ttc_total += prix_dossiers_ttc
-    
-    # Coût dossiers HT (on prend la moyenne)
     cout_dossiers_ht = nb_dossiers * COUT_REVIENT_HT['supports']['dossier']
     cout_revient_ht_total += cout_dossiers_ht
-    
     # ======================================================================
     # ACCOUDOIRS
     # ======================================================================
-    
     nb_accoudoirs = 0
-    if acc_left:
-        nb_accoudoirs += 1
-    if acc_right:
-        nb_accoudoirs += 1
-    if acc_bas:
-        nb_accoudoirs += 1
-    
+    if 'seg_nb_accoudoirs' in locals():
+        nb_accoudoirs = seg_nb_accoudoirs
+    else:
+        if acc_left:
+            nb_accoudoirs += 1
+        if acc_right:
+            nb_accoudoirs += 1
+        if acc_bas:
+            nb_accoudoirs += 1
     prix_accoudoirs_ttc = nb_accoudoirs * PRIX_TTC['supports']['accoudoir']
     details['Accoudoirs'] = prix_accoudoirs_ttc
     prix_ttc_total += prix_accoudoirs_ttc
-    
     cout_accoudoirs_ht = nb_accoudoirs * COUT_REVIENT_HT['supports']['accoudoir']
     cout_revient_ht_total += cout_accoudoirs_ht
-    
     # ======================================================================
     # COUSSINS
     # ======================================================================
-    
-    nb_coussins, taille_coussin = estimer_nombre_coussins(
-        type_canape, tx, ty, tz, profondeur, type_coussins
-    )
-    
-    # Ajustement si méridienne
+    # Détermination du nombre et de la taille des coussins d'assise. Si
+    # ``segmentation_used`` est vrai, on calcule la longueur utile de
+    # chaque banquette et on divise par la taille de coussin. Sinon on
+    # retombe sur l'estimation heuristique. Si la taille n'est pas 65,
+    # 80 ou 90 cm, les coussins sont considérés comme des valises.
+    nb_coussins = 0
+    taille_coussin = None
+    coussins_valise = False
+    # Convertir le type de coussin en chaîne (si None)
+    if not type_coussins:
+        type_coussins = "auto"
+    # Choix de la taille
+    if isinstance(type_coussins, str) and type_coussins.strip().lower() == "auto":
+        if segmentation_used and 'seg_pts' in locals():
+            # Pour l'automatique, s'appuyer sur le schéma pour choisir la taille optimale
+            try:
+                taille_auto = canape_mod._choose_cushion_size_auto(seg_pts, tx, ty, None, 0, traversins=None)
+                taille_coussin = taille_auto
+            except Exception:
+                # Fallback sur une estimation basique
+                longueur_totale = tx
+                if "l" in type_lower or "u" in type_lower:
+                    longueur_totale += (ty or 0)
+                if "u" in type_lower:
+                    longueur_totale += (tz or 0)
+                if longueur_totale < 200:
+                    taille_coussin = 65
+                elif longueur_totale < 350:
+                    taille_coussin = 80
+                else:
+                    taille_coussin = 90
+        else:
+            # Estimation simple de la taille optimale en fonction de la longueur totale
+            longueur_totale = tx
+            if "l" in type_lower or "u" in type_lower:
+                longueur_totale += (ty or 0)
+            if "u" in type_lower:
+                longueur_totale += (tz or 0)
+            if longueur_totale < 200:
+                taille_coussin = 65
+            elif longueur_totale < 350:
+                taille_coussin = 80
+            else:
+                taille_coussin = 90
+    else:
+        # Taille fixe spécifiée
+        try:
+            taille_coussin = int(type_coussins)
+        except Exception:
+            taille_coussin = 80
+    # Les tailles non standard sont considérées comme valises
+    if taille_coussin not in (65, 80, 90):
+        coussins_valise = True
+    # Calcul du nombre de coussins
+    if segmentation_used:
+        # Utiliser la longueur utile de chaque banquette (hors angle) pour la répartition des coussins
+        utile_lengths = []
+        for (L, P) in banquettes_dims:
+            if L >= P:
+                utile = L
+            else:
+                utile = max(0.0, L - profondeur)
+            utile_lengths.append(utile)
+        nb_coussins = 0
+        for lng in utile_lengths:
+            if taille_coussin > 0:
+                nb_coussins += max(1, int(math.floor(lng / taille_coussin)))
+            else:
+                nb_coussins += 1
+        if nb_coussins < 2:
+            nb_coussins = 2
+    else:
+        # Heuristique d'estimation (basée sur la somme des longueurs)
+        nb_coussins, _ = estimer_nombre_coussins(type_canape, tx, ty, tz, profondeur, taille_coussin)
+    # Ajustement pour la méridienne
     if has_meridienne:
         nb_coussins = max(1, nb_coussins - 1)
-    
-    # Déterminer si la taille correspond à un coussin standard ou à un coussin valise
-    if taille_coussin not in (65, 80, 90):
-        # Coussin valise : tarif unique
+    # Application des prix
+    if coussins_valise:
         prix_unitaire_coussin = PRIX_TTC['coussins']['valise']
         cout_unitaire_coussin = COUT_REVIENT_HT['coussins']['valise']
         coussin_label = f'Coussins valise (×{nb_coussins})'
@@ -359,91 +430,67 @@ def calculer_prix_total(type_canape, tx, ty, tz, profondeur,
     prix_coussins_ttc = nb_coussins * prix_unitaire_coussin
     details[coussin_label] = prix_coussins_ttc
     prix_ttc_total += prix_coussins_ttc
-    
     cout_coussins_ht = nb_coussins * cout_unitaire_coussin
     cout_revient_ht_total += cout_coussins_ht
-    
     # ======================================================================
     # ACCESSOIRES
     # ======================================================================
-    
-    # Coussins déco
     if nb_coussins_deco > 0:
         prix_deco = nb_coussins_deco * PRIX_TTC['accessoires']['coussin_deco']
         details[f'Coussins déco (×{nb_coussins_deco})'] = prix_deco
         prix_ttc_total += prix_deco
-        
         cout_deco = nb_coussins_deco * COUT_REVIENT_HT['accessoires']['coussin_deco']
         cout_revient_ht_total += cout_deco
-    
-    # Traversins
     if nb_traversins_supp > 0:
         prix_trav = nb_traversins_supp * PRIX_TTC['accessoires']['traversin']
         details[f'Traversins (×{nb_traversins_supp})'] = prix_trav
         prix_ttc_total += prix_trav
-        
         cout_trav = nb_traversins_supp * COUT_REVIENT_HT['accessoires']['traversin']
         cout_revient_ht_total += cout_trav
-    
-    # Surmatelas
     if has_surmatelas:
         prix_surmat = PRIX_TTC['accessoires']['surmatelas']
         details['Surmatelas'] = prix_surmat
         prix_ttc_total += prix_surmat
-        
         cout_surmat = COUT_REVIENT_HT['accessoires']['surmatelas']
         cout_revient_ht_total += cout_surmat
-    
     # ======================================================================
     # ARRONDIS (coût uniquement)
     # ======================================================================
-    
-    cout_revient_ht_total += COUT_REVIENT_HT['arrondis']
-    
+    # Un coût d'arrondi est appliqué par banquette et par banquette d'angle
+    nb_arrondis = len(banquettes_dims) + len(angle_dims)
+    cout_revient_ht_total += nb_arrondis * COUT_REVIENT_HT['arrondis']
     # ======================================================================
     # CALCULS FINAUX
     # ======================================================================
-    
-    # Sous-total et TVA
     sous_total = prix_ttc_total / 1.2
     tva = prix_ttc_total - sous_total
-    
-    # CALCUL DE LA VRAIE MARGE
     prix_ht = prix_ttc_total / 1.2
     marge_ht = prix_ht - cout_revient_ht_total
     taux_marge = (marge_ht / prix_ht * 100) if prix_ht > 0 else 0
-    
     return {
         'details': details,
         'sous_total': round(sous_total, 2),
         'tva': round(tva, 2),
         'total_ttc': round(prix_ttc_total, 2),
-        
-        # NOUVEAUX champs pour la vraie marge
         'prix_ht': round(prix_ht, 2),
         'cout_revient_ht': round(cout_revient_ht_total, 2),
         'marge_ht': round(marge_ht, 2),
         'taux_marge': round(taux_marge, 1),
-        
-        # Informations complémentaires
-        'nb_banquettes': nb_banquettes,
+        'nb_banquettes': nb_banquettes_effectif,
         'nb_dossiers': nb_dossiers,
         'nb_accoudoirs': nb_accoudoirs,
         'nb_coussins': nb_coussins,
         'taille_coussins': taille_coussin
     }
 
-
 # ==========================================================================
 # CLASSE POUR COMPATIBILITÉ AVEC NOUVEAU CODE
-# ============================================================================
+# ==========================================================================
 
 class CanapePricing:
     """Classe de compatibilité pour le nouveau système"""
-    
     def __init__(self):
         pass
-    
     def calculer_devis_complet(self, configuration):
         """Méthode de compatibilité pour le nouveau système"""
         # Convertir la configuration en paramètres pour calculer_prix_total
