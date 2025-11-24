@@ -1,7 +1,7 @@
 """
 Application Streamlit pour générer des devis de canapés sur mesure
 Compatible Streamlit Cloud - Utilise canapematplot.py
-VERSION MODIFIÉE : Schémas agrandis
+VERSION MODIFIÉE : Schéma centré et agrandi à 80% de la page
 """
 
 import streamlit as st
@@ -142,8 +142,8 @@ def generer_schema_canape(type_canape, tx, ty, tz, profondeur,
                           dossier_left, dossier_bas, dossier_right,
                           meridienne_side, meridienne_len, coussins="auto"):
     """Génère le schéma du canapé"""
-    # 🔧 MODIFICATION : Taille augmentée de 12x8 à 16x12 (33% plus grand)
-    fig = plt.figure(figsize=(16, 12))
+    # 🔧 MODIFICATION : Taille encore augmentée pour meilleur rendu à 80%
+    fig = plt.figure(figsize=(20, 15))
     
     try:
         if "Simple" in type_canape:
@@ -360,7 +360,12 @@ with tab5:
                         coussins=type_coussins
                     )
                     
-                    st.pyplot(fig)
+                    # 🔧 MODIFICATION : Schéma centré avec colonnes de padding
+                    col_pad1, col_schema, col_pad2 = st.columns([0.1, 0.8, 0.1])
+                    
+                    with col_schema:
+                        st.pyplot(fig, use_container_width=True)
+                    
                     plt.close()
                     st.success("✅ Schéma généré avec succès !")
                     
@@ -407,8 +412,8 @@ with tab5:
                         )
                         
                         img_buffer = BytesIO()
-                        # 🔧 MODIFICATION : DPI augmenté de 150 à 200 pour meilleure qualité
-                        fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=200)
+                        # 🔧 MODIFICATION : DPI augmenté pour meilleure qualité
+                        fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=250)
                         img_buffer.seek(0)
                         plt.close(fig)
                         
