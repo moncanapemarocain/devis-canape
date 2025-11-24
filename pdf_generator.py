@@ -33,6 +33,7 @@ IMAGE_FILES = {
 def generer_pdf_devis(config, prix_details, schema_image=None):
     """
     Génère un PDF de devis (1 page) avec un pied de page fixe en bas et des images de mousse.
+    VERSION MODIFIÉE : Schéma agrandi
     """
     buffer = BytesIO()
     
@@ -171,14 +172,14 @@ def generer_pdf_devis(config, prix_details, schema_image=None):
     descriptions_mousse = {
         'D25': "La mousse D25 est une mousse polyuréthane de 25kg/m3. Elle est très ferme, parfaite pour les habitués des banquettes marocaines classiques.",
         'D30': "La mousse D30 est une mousse polyuréthane de 30kg/m3. Elle est ultra ferme, idéale pour ceux qui recherchent un canapé très ferme.",
-        'HR35': "La mousse HR35 est une mousse haute résilience de 35kg/m3. Elle est semi ferme confortable, parfaite pour les adeptes des salons confortables.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l’affaissement dans le temps.",
-        'HR45': "La mousse HR45 est une mousse haute résilience de 45kg/m3. Elle est ferme confortable, parfaite pour les adeptes des salons confortables mais pas trop moelleux.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l’affaissement dans le temps."
+        'HR35': "La mousse HR35 est une mousse haute résilience de 35kg/m3. Elle est semi ferme confortable, parfaite pour les adeptes des salons confortables.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l'affaissement dans le temps.",
+        'HR45': "La mousse HR45 est une mousse haute résilience de 45kg/m3. Elle est ferme confortable, parfaite pour les adeptes des salons confortables mais pas trop moelleux.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l'affaissement dans le temps."
     }
     texte_mousse = descriptions_mousse.get(mousse_type, descriptions_mousse['HR35'])
     
     elements.append(Spacer(1, 0.2*cm))
     
-    # --- MODIFICATION CLÉ : Image et Texte en Tableau ---
+    # --- Image et Texte en Tableau ---
     image_path = IMAGE_FILES.get(mousse_type)
     
     if image_path:
@@ -186,32 +187,29 @@ def generer_pdf_devis(config, prix_details, schema_image=None):
             img_mousse = Image(image_path, width=2.5*cm, height=2.5*cm)
             text_flowable = Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style)
             
-            # Ajustement des colWidths pour laisser plus de marge
-            # 18cm de largeur totale disponible (A4 - 2x1cm marge)
             mousse_table = Table([[img_mousse, text_flowable]], colWidths=[3*cm, 14*cm]) 
             
             mousse_table.setStyle(TableStyle([
-                # Centrage vertical par rapport à l'image
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), 
-                # Ajout de padding à gauche et à droite de la table complète pour effet de marge
-                ('LEFTPADDING', (0, 0), (0, 0), 0.5*cm), # Marge à gauche de l'image
-                ('RIGHTPADDING', (0, 0), (-1, -1), 0.5*cm), # Marge à droite du texte
+                ('LEFTPADDING', (0, 0), (0, 0), 0.5*cm),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0.5*cm),
             ]))
             elements.append(mousse_table)
         except Exception:
-            # En cas d'erreur de fichier, afficher le texte seul 
             elements.append(Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style))
     else:
         elements.append(Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style))
 
     elements.append(Spacer(1, 0.3*cm))
 
-    # 3. SCHÉMA
+    # 3. SCHÉMA - 🔧 MODIFICATION : Zone agrandie de 40%
     if schema_image:
         try:
             img = Image(schema_image)
-            avail_width = 18 * cm
-            avail_height = 10 * cm
+            # AVANT : avail_width = 18*cm, avail_height = 10*cm
+            # APRÈS : Zone plus grande pour un schéma plus imposant
+            avail_width = 19 * cm    # Utilise presque toute la largeur (page = 21cm)
+            avail_height = 14 * cm   # Hauteur augmentée de 40% (10cm → 14cm)
             
             img_w = img.imageWidth
             img_h = img.imageHeight
