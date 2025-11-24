@@ -304,7 +304,8 @@ with tab3:
                 format_func=lambda x: "Gauche" if x == "left" else "Droite"
             )
             # Par défaut, longueur 50cm si la méridienne est activée
-            meridienne_len = st.number_input("Longueur (cm)", min_value=80, max_value=200, value=50, step=10)
+            # Valeur par défaut 50 cm, et minimum 50 cm pour éviter une erreur StreamlitValueBelowMinError
+            meridienne_len = st.number_input("Longueur (cm)", min_value=50, max_value=200, value=50, step=10)
         else:
             meridienne_side = "left"
             meridienne_len = 0
@@ -402,9 +403,7 @@ with tab6:
                         'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
                         'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_supp,
                         'has_surmatelas': has_surmatelas,
-                        'has_meridienne': has_meridienne,
-                        'meridienne_side': meridienne_side,
-                        'meridienne_len': meridienne_len
+                        'has_meridienne': has_meridienne
                     }
                     def price_ht_for(update_dict):
                         params = base_params.copy()
