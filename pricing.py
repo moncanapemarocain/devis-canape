@@ -1,58 +1,621 @@
-Actuellement la console affiche les informations ainsi :  Dimensions : tx=560 / ty(left)=540 / tz(right)=520 — prof=80 (A=100)
-Méridienne : g (50 cm)
-Banquettes : 6 → [(215, 80), (215, 80), (170, 80), (170, 80), (197, 80), (198, 80)]
-Dossiers : 8 (+3 via scission) | Accoudoirs : 1
-Banquettes d'angle : 2
-Angles : 2 × 100×100 cm
-Traversins : 2 × 70x30
-Coussins : 16x87 - total 16
-  J’aimerai qu’elle affiche les données ainsi :   À partir des données console : 
-Dimensions : tx=560 / ty(left)=540 / tz(right)=520 — prof=80 (A=100)
-Méridienne : g (50 cm)
-Nombre de banquettes : 6 Nombre de banquette d’angle : 2
-Nombre de dossiers : 8
-Nombre d’accoudoir : 1
-Dimension mousse 1 : 215, 80
-Dimension mousse 2 : 215, 80
-Dimension mousse 3 : 170, 80
-Dimension mousse 4 : 170, 80
-Dimension mousse 5 : 197, 80
-Dimension mousse 6 : 198, 80
-Dimension mousse 7 
-Dimension mousse 8 
-Dimension mousse angle 1 : 100, 100
-Dimension mousse angle 2 : 100, 100
-Nombre de coussins 65cm
-Nombre de coussins 80cm
-Nombre de coussins 90cm 
-Nombre de coussins valises total : 16
-Nombre de traversin 2
+"""
+Module de calcul des devis pour canapés marocains.
+
+Ce module expose la fonction ``calculer_prix_total`` qui, à partir d’une
+configuration de canapé et des valeurs mesurées par le module de rendu
+(`canapematplot.py`), calcule un prix TTC détaillé.  Il tient compte des
+dimensions des mousses, du tissu, des supports (banquettes, banquettes
+d’angle, dossiers), des coussins (65 cm, 80 cm, 90 cm et valise), des
+traversins, des surmatelas, des accoudoirs et des arrondis.  Les
+formules et tarifs appliqués suivent les directives fournies par
+l’utilisateur.
+
+Principales règles :
+
+* **Mousses** : pour chaque mousse droite ou d’angle, le prix TTC est
+  calculé par :
+
+      (longueur * largeur * épaisseur * densité * 21) / 1 000 000
+
+  où les dimensions proviennent du rapport console, l’épaisseur est
+  saisie par l’utilisateur (cm) et la densité dépend du type de mousse
+  (D25 → 25, D30 → 30, HR35 → 35, HR45 → 45).
+
+* **Tissu** : pour chaque mousse, si ``largeur + (épaisseur * 2) > 140``
+  alors le coût est ``(longueur/100) * 105``, sinon ``(longueur/100) * 74``.
+
+* **Supports** : banquette droite = 225 €, banquette d’angle = 250 €, dossier = 250 €.
+  Chaque accoudoir est facturé 200 €.
+
+* **Coussins** : coussins d’assise et décoratifs sont comptés selon leur
+  taille : 65 cm → 40 €, 80 cm → 50 €, 90 cm → 55 €, valise → 75 €.
+  Les coussins déco supplémentaires coûtent 15 € pièce.
+
+* **Traversins** : 30 € l’unité ; **Surmatelas** : 80 € l’unité.
+
+* **Arrondis** : si l’option est activée, un supplément de 20 € est
+  ajouté par banquette droite et par banquette d’angle.
+
+La fonction renvoie un dictionnaire contenant :
+
+``prix_ht`` : montant hors taxe (TTC / 1,20),
+``cout_revient_ht`` : estimation simplifiée du coût de revient (70 % du HT),
+``tva`` : montant de la TVA (TTC − HT),
+``total_ttc`` : total toutes taxes comprises,
+``calculation_details`` : liste détaillée des calculs (chaque entrée avec la
+ catégorie, l’article, la quantité, la formule utilisée et le total).
+
+Le module charge dynamiquement ``canapematplot.py`` pour obtenir les
+dimensions et quantités imprimées en console.  En cas d’erreur, une
+``RuntimeError`` est levée afin que l’application Streamlit puisse
+afficher un message compréhensible.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import importlib.machinery
+import io
+import os
+import re
+from typing import Dict, List, Tuple
 
 
-Ajout grâce au formulaire : 
-Nombre de sur matelas 
-Nombre de coussins deco 
-Nombre d’arrondis 
- Ces données vont nous servir de base pour le calcul du prix
- Comment connaitre la dimension d’une mousse ?  La dimension d’une mousse correspond à la dimension de la banquette à laquelle on vient ajouter l’épaisseur. Par défault 25cm.  Donc si c’est un LF de 300x300cm en 80cm de profondeur avec 2 accoudoir et dossiers :  Mousse 1 : 175x80x25cm Mousse 2 : 175x80x25cm Mousse 3 (angle) : 90x90x25cm
- Ensuite on applique la règle de calcul suivante pour chaque mousses :  
-PrixMousse1=(longueur*largeur*hauteur*densité*21)/1000000)
+def _load_canape_module() -> object:
+    """Charge et retourne le module de rendu (canapematplot.py).
 
-Qu’est ce que la densité ? La densité correspond au choix de la mousse : D25 = densité 25, D30 = densité 30, HR35= densité 35, HR45 = Densité 45
+    Ce chargeur utilise ``importlib.machinery.SourceFileLoader`` pour
+    importer un fichier Python dont le nom est fixé (canapematplot.py).
+    Les appels bloquants comme ``plt.show`` et ``turtle.done`` sont
+    neutralisés afin que le rendu graphique ne bloque pas le calcul.
+    """
+    global _CANAPE_MOD
+    if '_CANAPE_MOD' in globals() and _CANAPE_MOD is not None:
+        return _CANAPE_MOD
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    filename = 'canapematplot.py'
+    path = os.path.join(this_dir, filename)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Cannot find the canape rendering module at {path!r}")
+    loader = importlib.machinery.SourceFileLoader('canape_render', path)
+    mod = loader.load_module()
+    try:
+        import matplotlib
+        matplotlib.use('Agg', force=True)
+    except Exception:
+        pass
+    try:
+        mod.plt.show = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    try:
+        mod.turtle.done = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    globals()['_CANAPE_MOD'] = mod
+    return mod
 
-Calcul du prix du tissu pour la mousse1 Reprendre dimension mousse 1 :  Si largeur+(epaisseur*2)>140;((Longueur/100)*105); (Longueur/100)*74);
- Donc si 175x80x25cm alors pour calcul tissu :  80+25*2‎ = 130 donc inférieur à 140cm  Donc (175/100)*74‎ = 129,5  Ensuite appliquer le prix suivant à l’unité :  Coussins 65cm : 40€
-Coussins 80cm : 50€
-Coussins 90cm : 55€
-Coussins valises : 75€
 
-Support : 
-Banquette d’assise : 250€
-Banquette d’angle : 250€
-Banquette : 225€
-Dossier : 250€ Accoudoir : 200€
+def _call_render_function(mod: object, *, type_canape: str, tx: float | int | None, ty: float | int | None,
+                          tz: float | int | None, profondeur: float | int | None, dossier_left: bool, dossier_bas: bool,
+                          dossier_right: bool, acc_left: bool, acc_bas: bool, acc_right: bool,
+                          meridienne_side: str | None, meridienne_len: float | int | None,
+                          coussins: str | int | None) -> str:
+    """Appelle la fonction de rendu appropriée et capture la sortie console."""
+    try:
+        render_func: callable
+        kwargs: Dict[str, object] = {}
+        t = (type_canape or '').lower()
+        if 'simple' in t:
+            render_func = getattr(mod, 'render_Simple1')
+            kwargs = dict(
+                tx=tx,
+                profondeur=profondeur,
+                dossier=dossier_bas,
+                acc_left=acc_left,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len or 0,
+                coussins=coussins or 'auto',
+                window_title="simple"
+            )
+        elif 'l - sans angle' in t:
+            render_func = getattr(mod, 'render_LNF')
+            kwargs = dict(
+                tx=tx,
+                ty=ty,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len or 0,
+                coussins=coussins or 'auto',
+                variant="auto",
+                window_title="LNF"
+            )
+        elif 'l - avec angle' in t:
+            render_func = getattr(mod, 'render_LF_variant')
+            kwargs = dict(
+                tx=tx,
+                ty=ty,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len or 0,
+                coussins=coussins or 'auto',
+                window_title="LF"
+            )
+        elif 'u - sans angle' in t or (('u ' in t) and ('sans angle' in t)):
+            render_func = getattr(mod, 'render_U')
+            kwargs = dict(
+                tx=tx,
+                ty_left=ty,
+                tz_right=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                acc_right=acc_right,
+                coussins=coussins or 'auto',
+                variant="auto",
+                window_title="U"
+            )
+        elif 'u - 1 angle' in t:
+            render_func = getattr(mod, 'render_U1F_v1')
+            kwargs = dict(
+                tx=tx,
+                ty=ty,
+                tz=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len or 0,
+                coussins=coussins or 'auto',
+                window_title="U1F"
+            )
+        elif 'u - 2 angles' in t:
+            render_func = getattr(mod, 'render_U2f_variant')
+            kwargs = dict(
+                tx=tx,
+                ty_left=ty,
+                tz_right=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len or 0,
+                coussins=coussins or 'auto',
+                variant="auto",
+                window_title="U2F"
+            )
+        else:
+            raise ValueError(f"Unrecognised type_canape: {type_canape}")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            render_func(**kwargs)  # type: ignore[func-returns-value]
+        return buf.getvalue()
+    except Exception as exc:
+        raise RuntimeError(f"Erreur lors de l'exécution du rendu: {exc}") from exc
 
 
-Coussins déco : 15€
-Traversin : 30€
-Surmatelas : 80€  Arrondis = 20€/banquettes
+def _parse_console_report(report: str) -> Dict[str, object]:
+    """Analyse les lignes émises dans la console par le module de rendu.
+
+    On extrait les nombres de banquettes, banquettes d’angle, dossiers,
+    accoudoirs, les dimensions de chaque mousse (droite ou angle) et le
+    nombre de coussins de chaque taille, ainsi que les traversins.  Les
+    valeurs absentes sont initialisées à 0 ou listes vides.
+    """
+    result: Dict[str, object] = {
+        'nb_banquettes': 0,
+        'nb_banquettes_angle': 0,
+        'nb_dossiers': 0,
+        'nb_accoudoirs': 0,
+        'dims_mousses': [],
+        'dims_mousses_angle': [],
+        'nb_coussins_65': 0,
+        'nb_coussins_80': 0,
+        'nb_coussins_90': 0,
+        'nb_coussins_valise': 0,
+        'nb_traversins': 0,
+    }
+    lines = [line.strip() for line in report.splitlines() if line.strip()]
+    pat_int = re.compile(r"\d+")
+    pat_mousse = re.compile(r"^Dimension mousse\s+(\d+)\s*:\s*([0-9]+)\s*,\s*([0-9]+)")
+    pat_mousse_angle = re.compile(r"^Dimension mousse angle\s+(\d+)\s*:\s*([0-9]+)\s*,\s*([0-9]+)")
+    for line in lines:
+        if line.lower().startswith('nombre de banquettes'):
+            m = pat_int.search(line)
+            if m:
+                result['nb_banquettes'] = int(m.group())
+        elif 'banquette d’angle' in line.lower() or 'banquette d\'angle' in line.lower():
+            m = pat_int.search(line)
+            if m:
+                result['nb_banquettes_angle'] = int(m.group())
+        elif line.lower().startswith('nombre de dossiers'):
+            m = pat_int.search(line)
+            if m:
+                result['nb_dossiers'] = int(m.group())
+        elif line.lower().startswith('nombre d’accoudoir') or line.lower().startswith("nombre d'accoudoir"):
+            m = pat_int.search(line)
+            if m:
+                result['nb_accoudoirs'] = int(m.group())
+        elif line.lower().startswith('dimension mousse angle'):
+            m = pat_mousse_angle.match(line)
+            if m:
+                L = float(m.group(2)); P = float(m.group(3))
+                result['dims_mousses_angle'].append((L, P))
+        elif line.lower().startswith('dimension mousse'):
+            m = pat_mousse.match(line)
+            if m:
+                L = float(m.group(2)); P = float(m.group(3))
+                result['dims_mousses'].append((L, P))
+        elif 'nombre de coussins 65' in line.lower():
+            parts = line.split(':')
+            if len(parts) >= 2:
+                try:
+                    qty = int(re.findall(r"\d+", parts[1])[0])
+                    result['nb_coussins_65'] = qty
+                except Exception:
+                    pass
+        elif 'nombre de coussins 80' in line.lower():
+            parts = line.split(':')
+            if len(parts) >= 2:
+                try:
+                    qty = int(re.findall(r"\d+", parts[1])[0])
+                    result['nb_coussins_80'] = qty
+                except Exception:
+                    pass
+        elif 'nombre de coussins 90' in line.lower():
+            parts = line.split(':')
+            if len(parts) >= 2:
+                try:
+                    qty = int(re.findall(r"\d+", parts[1])[0])
+                    result['nb_coussins_90'] = qty
+                except Exception:
+                    pass
+        elif 'nombre de coussins valises' in line.lower():
+            m = pat_int.search(line)
+            if m:
+                result['nb_coussins_valise'] = int(m.group())
+        elif 'nombre de traversin' in line.lower():
+            m = pat_int.search(line)
+            if m:
+                result['nb_traversins'] = int(m.group())
+        else:
+            continue
+    return result
+
+
+def _density_from_type(type_mousse: str) -> float:
+    """Convertit une chaîne Dxx/HRxx en densité numérique."""
+    if not type_mousse:
+        return 25.0
+    t = str(type_mousse).strip().lower()
+    if 'hr' in t:
+        try:
+            return float(t.replace('hr', '').replace(' ', ''))
+        except Exception:
+            return 35.0
+    else:
+        try:
+            return float(t.replace('d', '').replace(' ', ''))
+        except Exception:
+            return 25.0
+
+
+def _compute_foam_and_fabric_price(dims: List[Tuple[float, float]], thickness: float, density: float) -> Tuple[float, float]:
+    """Calcule les totaux TTC de mousse et de tissu pour une liste de coussins.
+
+    Pour chaque coussin, le prix de la mousse est :
+
+        (longueur * largeur * épaisseur * densité * 21) / 1 000 000
+
+    Le prix du tissu est déterminé par la largeur et l’épaisseur : si
+    ``largeur + (épaisseur * 2) > 140`` alors ``(longueur/100) * 105`` sinon
+    ``(longueur/100) * 74``.
+    """
+    foam_total = 0.0
+    fabric_total = 0.0
+    for L, W in dims:
+        foam_total += (L * W * thickness * density * 21.0) / 1_000_000.0
+        if (W + (thickness * 2.0)) > 140.0:
+            fabric_total += (L / 100.0) * 105.0
+        else:
+            fabric_total += (L / 100.0) * 74.0
+    return foam_total, fabric_total
+
+
+def calculer_prix_total(
+    *,
+    type_canape: str,
+    tx: float | int | None = None,
+    ty: float | int | None = None,
+    tz: float | int | None = None,
+    profondeur: float | int | None = None,
+    type_coussins: str | int | None = None,
+    type_mousse: str | None = None,
+    epaisseur: float | int | None = None,
+    acc_left: bool = False,
+    acc_right: bool = False,
+    acc_bas: bool = False,
+    dossier_left: bool = False,
+    dossier_bas: bool = False,
+    dossier_right: bool = False,
+    nb_coussins_deco: int = 0,
+    nb_traversins_supp: int = 0,
+    has_surmatelas: bool | int = False,
+    has_meridienne: bool | None = None,
+    meridienne_side: str | None = None,
+    meridienne_len: float | int | None = None,
+    arrondis: bool | int = False
+) -> Dict[str, float]:
+    """Calcule le prix total TTC et fournit un détail complet des calculs.
+
+    Le paramètre ``arrondis`` indique si les arrondis doivent être facturés
+    (20 € par banquette droite ou d’angle).  Les autres paramètres
+    reflètent directement les champs du formulaire Streamlit.
+    """
+    tx = float(tx or 0)
+    ty = float(ty or 0)
+    tz = float(tz or 0)
+    profondeur = float(profondeur or 0)
+    epaisseur_val = float(epaisseur or 0)
+    density = _density_from_type(type_mousse or 'D25')
+    mod = _load_canape_module()
+    try:
+        report = _call_render_function(
+            mod,
+            type_canape=type_canape,
+            tx=tx,
+            ty=ty,
+            tz=tz,
+            profondeur=profondeur,
+            dossier_left=dossier_left,
+            dossier_bas=dossier_bas,
+            dossier_right=dossier_right,
+            acc_left=acc_left,
+            acc_bas=acc_bas,
+            acc_right=acc_right,
+            meridienne_side=meridienne_side,
+            meridienne_len=meridienne_len or 0,
+            coussins=type_coussins or 'auto'
+        )
+    except Exception:
+        raise
+    data = _parse_console_report(report)
+    dims = list(data.get('dims_mousses', []))
+    dims_angle = list(data.get('dims_mousses_angle', []))
+    foam_straight, fabric_straight = _compute_foam_and_fabric_price(dims, epaisseur_val, density)
+    foam_angle, fabric_angle = _compute_foam_and_fabric_price(dims_angle, epaisseur_val, density)
+    foam_total = foam_straight + foam_angle
+    fabric_total = fabric_straight + fabric_angle
+    nb_banquettes = int(data.get('nb_banquettes') or 0)
+    nb_banquettes_angle = int(data.get('nb_banquettes_angle') or 0)
+    nb_dossiers = int(data.get('nb_dossiers') or 0)
+    support_total = 0.0
+    support_total += nb_banquettes * 225.0
+    support_total += nb_banquettes_angle * 250.0
+    support_total += nb_dossiers * 250.0
+    nb_coussins_65 = int(data.get('nb_coussins_65') or 0)
+    nb_coussins_80 = int(data.get('nb_coussins_80') or 0)
+    nb_coussins_90 = int(data.get('nb_coussins_90') or 0)
+    nb_coussins_valise = int(data.get('nb_coussins_valise') or 0)
+    cushion_total = (
+        nb_coussins_65 * 40.0 +
+        nb_coussins_80 * 50.0 +
+        nb_coussins_90 * 55.0 +
+        nb_coussins_valise * 75.0 +
+        nb_coussins_deco * 15.0
+    )
+    nb_traversins = int(data.get('nb_traversins') or 0) + int(nb_traversins_supp or 0)
+    traversin_total = nb_traversins * 30.0
+    nb_surmatelas = 1 if has_surmatelas else 0
+    surmatelas_total = nb_surmatelas * 80.0
+    nb_accoudoirs = int(data.get('nb_accoudoirs') or 0)
+    accoudoir_total = nb_accoudoirs * 200.0
+    details: List[Dict[str, object]] = []
+    # Détails mousse et tissu par coussin droit
+    for idx, (length, width) in enumerate(dims, start=1):
+        foam_price = (length * width * epaisseur_val * density * 21.0) / 1_000_000.0
+        details.append({
+            'category': 'foam',
+            'item': f'Mousse droite {idx} ({length}×{width} cm)',
+            'quantity': 1,
+            'unit_price': round(foam_price, 2),
+            'formula': f'({length}*{width}*{epaisseur_val}*{density}*21)/1 000 000',
+            'total_price': round(foam_price, 2)
+        })
+        if (width + (epaisseur_val * 2)) > 140:
+            fabric_unit = (length / 100.0) * 105.0
+            fabric_formula = f'({length}/100)*105'
+        else:
+            fabric_unit = (length / 100.0) * 74.0
+            fabric_formula = f'({length}/100)*74'
+        details.append({
+            'category': 'fabric',
+            'item': f'Tissu droite {idx} ({length}×{width} cm)',
+            'quantity': 1,
+            'unit_price': round(fabric_unit, 2),
+            'formula': fabric_formula,
+            'total_price': round(fabric_unit, 2)
+        })
+    # Détails mousse et tissu pour coussins d’angle
+    for idx, (length, width) in enumerate(dims_angle, start=1):
+        foam_price = (length * width * epaisseur_val * density * 21.0) / 1_000_000.0
+        details.append({
+            'category': 'foam',
+            'item': f'Mousse angle {idx} ({length}×{width} cm)',
+            'quantity': 1,
+            'unit_price': round(foam_price, 2),
+            'formula': f'({length}*{width}*{epaisseur_val}*{density}*21)/1 000 000',
+            'total_price': round(foam_price, 2)
+        })
+        if (width + (epaisseur_val * 2)) > 140:
+            fabric_unit = (length / 100.0) * 105.0
+            fabric_formula = f'({length}/100)*105'
+        else:
+            fabric_unit = (length / 100.0) * 74.0
+            fabric_formula = f'({length}/100)*74'
+        details.append({
+            'category': 'fabric',
+            'item': f'Tissu angle {idx} ({length}×{width} cm)',
+            'quantity': 1,
+            'unit_price': round(fabric_unit, 2),
+            'formula': fabric_formula,
+            'total_price': round(fabric_unit, 2)
+        })
+    # Supports détaillés
+    if nb_banquettes > 0:
+        details.append({
+            'category': 'support',
+            'item': 'Banquette droite',
+            'quantity': nb_banquettes,
+            'unit_price': 225.0,
+            'formula': '225 €/banquette',
+            'total_price': round(nb_banquettes * 225.0, 2)
+        })
+    if nb_banquettes_angle > 0:
+        details.append({
+            'category': 'support',
+            'item': 'Banquette d’angle',
+            'quantity': nb_banquettes_angle,
+            'unit_price': 250.0,
+            'formula': '250 €/angle',
+            'total_price': round(nb_banquettes_angle * 250.0, 2)
+        })
+    if nb_dossiers > 0:
+        details.append({
+            'category': 'support',
+            'item': 'Dossier',
+            'quantity': nb_dossiers,
+            'unit_price': 250.0,
+            'formula': '250 €/dossier',
+            'total_price': round(nb_dossiers * 250.0, 2)
+        })
+    # Coussins détaillés
+    if nb_coussins_65 > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin 65 cm',
+            'quantity': nb_coussins_65,
+            'unit_price': 40.0,
+            'formula': '40 €/coussin 65cm',
+            'total_price': round(nb_coussins_65 * 40.0, 2)
+        })
+    if nb_coussins_80 > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin 80 cm',
+            'quantity': nb_coussins_80,
+            'unit_price': 50.0,
+            'formula': '50 €/coussin 80cm',
+            'total_price': round(nb_coussins_80 * 50.0, 2)
+        })
+    if nb_coussins_90 > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin 90 cm',
+            'quantity': nb_coussins_90,
+            'unit_price': 55.0,
+            'formula': '55 €/coussin 90cm',
+            'total_price': round(nb_coussins_90 * 55.0, 2)
+        })
+    if nb_coussins_valise > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin valise',
+            'quantity': nb_coussins_valise,
+            'unit_price': 75.0,
+            'formula': '75 €/coussin valise',
+            'total_price': round(nb_coussins_valise * 75.0, 2)
+        })
+    if nb_coussins_deco > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin déco',
+            'quantity': nb_coussins_deco,
+            'unit_price': 15.0,
+            'formula': '15 €/coussin déco',
+            'total_price': round(nb_coussins_deco * 15.0, 2)
+        })
+    # Traversins détaillés
+    if nb_traversins > 0:
+        details.append({
+            'category': 'traversin',
+            'item': 'Traversin',
+            'quantity': nb_traversins,
+            'unit_price': 30.0,
+            'formula': '30 €/traversin',
+            'total_price': round(nb_traversins * 30.0, 2)
+        })
+    # Surmatelas détaillés
+    if nb_surmatelas > 0:
+        details.append({
+            'category': 'surmatelas',
+            'item': 'Surmatelas',
+            'quantity': nb_surmatelas,
+            'unit_price': 80.0,
+            'formula': '80 €/surmatelas',
+            'total_price': round(nb_surmatelas * 80.0, 2)
+        })
+    # Accoudoirs détaillés
+    if nb_accoudoirs > 0:
+        details.append({
+            'category': 'accoudoir',
+            'item': 'Accoudoir',
+            'quantity': nb_accoudoirs,
+            'unit_price': 200.0,
+            'formula': '200 €/accoudoir',
+            'total_price': round(accoudoir_total, 2)
+        })
+    # Arrondis
+    arrondis_units = 0
+    arrondis_total = 0.0
+    if arrondis:
+        arrondis_units = nb_banquettes + nb_banquettes_angle
+        arrondis_total = arrondis_units * 20.0
+        details.append({
+            'category': 'arrondis',
+            'item': 'Arrondi',
+            'quantity': arrondis_units,
+            'unit_price': 20.0,
+            'formula': '20 €/banquette ou angle',
+            'total_price': round(arrondis_total, 2)
+        })
+    # Total TTC (somme de tous les composants, déjà TTC)
+    total_ttc = (foam_total + fabric_total + support_total + cushion_total +
+                 traversin_total + surmatelas_total + accoudoir_total + arrondis_total)
+    prix_ht = round(total_ttc / 1.20, 2)
+    tva = round(total_ttc - prix_ht, 2)
+    cout_revient_ht = round(prix_ht * 0.70, 2)
+    return {
+        'prix_ht': prix_ht,
+        'cout_revient_ht': cout_revient_ht,
+        'tva': tva,
+        'total_ttc': round(total_ttc, 2),
+        'foam_total': round(foam_total, 2),
+        'fabric_total': round(fabric_total, 2),
+        'support_total': round(support_total, 2),
+        'cushion_total': round(cushion_total, 2),
+        'traversin_total': round(traversin_total, 2),
+        'surmatelas_total': round(surmatelas_total, 2),
+        'accoudoir_total': round(accoudoir_total, 2),
+        'arrondis_total': round(arrondis_total, 2),
+        'calculation_details': details,
+    }
