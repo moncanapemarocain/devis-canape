@@ -86,6 +86,17 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         alignment=TA_CENTER, spaceBefore=10, fontName=BASE_FONT
     )
 
+    # Style spécifique pour les en-têtes du pied de page (« Il faut savoir que le tarif comprend »
+    # et « Détail des cotations »). Il hérite de column_header_style mais réduit la taille de
+    # police de deux points pour correspondre aux exigences utilisateur.
+    footer_header_style = ParagraphStyle(
+        'FooterHeaderStyle', parent=column_header_style,
+        fontSize=column_header_style.fontSize - 2,
+        alignment=TA_LEFT,
+        fontName=column_header_style.fontName,
+        spaceAfter=column_header_style.spaceAfter
+    )
+
     # --- FONCTION INTERNE POUR DESSINER LE PIED DE PAGE FIXE ---
     def draw_footer(canvas, doc):
         canvas.saveState()
@@ -94,7 +105,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         
         # Colonne Gauche
         col_gauche = []
-        col_gauche.append(Paragraph("Il faut savoir que le tarif comprend :", column_header_style))
+        col_gauche.append(Paragraph("Il faut savoir que le tarif comprend :", footer_header_style))
         inclus_items = [
             "Livraison bas d'immeuble",
             "Fabrication 100% artisanale France",
@@ -108,7 +119,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
 
         # Colonne Droite
         col_droite = []
-        col_droite.append(Paragraph("Détail des cotations :", column_header_style))
+        col_droite.append(Paragraph("Détail des cotations :", footer_header_style))
         
         h_mousse = config['options'].get('epaisseur', 25)
         h_assise = 46 if h_mousse > 20 else 40
@@ -157,8 +168,30 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         dim_str = f"{dims.get('tx',0)} x {dims.get('profondeur',0)}"
 
     mousse_type = config.get('options', {}).get('type_mousse', 'HR35')
-    dossier_txt = 'Avec' if config.get('options', {}).get('dossier_bas') else 'Sans'
-    acc_txt = 'Oui' if (config.get('options', {}).get('acc_left') or config.get('options', {}).get('acc_right')) else 'Non'
+
+    # Déterminer le nombre d'accoudoirs (0, 1 ou 2)
+    acc_count = 0
+    if config.get('options', {}).get('acc_left', False):
+        acc_count += 1
+    if config.get('options', {}).get('acc_right', False):
+        acc_count += 1
+    acc_txt = str(acc_count)
+
+    # Déterminer les positions de dossiers : bas, gauche, droite
+    opts = config.get('options', {})
+    dossier_positions = []
+    if opts.get('dossier_bas', False):
+        dossier_positions.append('bas')
+    if opts.get('dossier_left', False) or opts.get('dossier_gauche', False):
+        dossier_positions.append('gauche')
+    if opts.get('dossier_right', False) or opts.get('dossier_droite', False):
+        dossier_positions.append('droite')
+    if len(dossier_positions) == 0:
+        dossier_txt = 'Sans'
+    elif len(dossier_positions) == 3:
+        dossier_txt = 'Avec'
+    else:
+        dossier_txt = ', '.join(dossier_positions)
 
     # En-tête client uniquement : ne pas afficher dimensions/confort/dossiers/accoudoirs ici
     client = config.get('client', {})
@@ -242,8 +275,9 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         except Exception:
             elements.append(Paragraph("<i>(Schéma non disponible)</i>", header_info_style))
 
-    # Ajouter un espace avant le récapitulatif du devis
-    elements.append(Spacer(1, 0.5 * cm))
+        # Ajouter un espace avant le récapitulatif du devis. L'utilisateur souhaite que la section
+        # « Détail du devis » soit légèrement plus basse par rapport au schéma ; on augmente donc l'espace.
+        elements.append(Spacer(1, 1.0 * cm))
 
     # 4. DÉTAIL DU DEVIS (remplace l'ancien bloc prix/remise et la page supplémentaire)
     # Calculs des montants nécessaires
@@ -281,32 +315,26 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     else:
         taille_coussins = str(type_coussins)
 
-    # Colonne gauche : caractéristiques générales
-    col_left = []
-    col_left.append(Paragraph("Détail du devis :", column_header_style))
-    col_left.append(Paragraph(f"Dimensions : {dim_str} cm", detail_style))
-    col_left.append(Paragraph(f"Mousse : {mousse_type}", detail_style))
-    col_left.append(Paragraph(f"Accoudoirs : {acc_txt}", detail_style))
-    col_left.append(Paragraph(f"Dossiers : {dossier_txt}", detail_style))
-    col_left.append(Paragraph(f"Profondeur : {dims.get('profondeur', 0)} cm", detail_style))
-
-    # Colonne droite : coussins, livraison, réduction et prix
-    col_right = []
+    # === Construction de la section « Détail du devis » ===
+    # Création d'un tableau ligne par ligne pour aligner correctement les informations de gauche et de droite.
+    table_rows = []
+    # Ligne 0 : titre à gauche, cellule vide à droite
+    table_rows.append([Paragraph("Détail du devis :", column_header_style), Paragraph("", detail_style)])
+    # Ligne 1 : Dimensions et Coussins
     if nb_coussins_assise is not None:
-        col_right.append(Paragraph(f"Nombre de coussins : {nb_coussins_assise} de {taille_coussins}", detail_style))
+        right_coussins = Paragraph(f"Coussins : {nb_coussins_assise} coussins de dossiers de {taille_coussins}", detail_style)
     else:
-        col_right.append(Paragraph("Nombre de coussins : -", detail_style))
-    # Livraison : gratuite
-    col_right.append(Paragraph("Livraison : <b>gratuite</b>", detail_style))
-    # Réduction TTC si fournie
-    col_right.append(Paragraph(f"Réduction : {reduction_ttc_val:.2f} €", detail_style))
-    # Prix d'angle (le prix final après réduction)
-    col_right.append(Paragraph(f"Prix canapé d'angle : <b>{montant_ttc}</b>", detail_style))
-    # Prix avant réduction
-    col_right.append(Paragraph(f"Prix avant réduction : {prix_avant_reduc}", detail_style))
-
-    # Construction du tableau à deux colonnes
-    devis_table = Table([[col_left, col_right]], colWidths=[9.5 * cm, 9.5 * cm])
+        right_coussins = Paragraph("Coussins : -", detail_style)
+    table_rows.append([Paragraph(f"Dimensions : {dim_str} cm", detail_style), right_coussins])
+    # Ligne 2 : Mousse et Livraison
+    table_rows.append([Paragraph(f"Mousse : {mousse_type}", detail_style), Paragraph("Livraison en bas d'immuble : <b>gratuite</b>", detail_style)])
+    # Ligne 3 : Accoudoirs et Réduction
+    table_rows.append([Paragraph(f"Accoudoirs : {acc_txt}", detail_style), Paragraph(f"Réduction : {reduction_ttc_val:.2f} €", detail_style)])
+    # Ligne 4 : Dossiers et Prix final
+    table_rows.append([Paragraph(f"Dossiers : {dossier_txt}", detail_style), Paragraph(f"Prix canapé d'angle : <b>{montant_ttc}</b>", detail_style)])
+    # Ligne 5 : Profondeur et Prix avant réduction
+    table_rows.append([Paragraph("Profondeur : 70cm d'assise", detail_style), Paragraph(f"Prix avant réduction : {prix_avant_reduc}", detail_style)])
+    devis_table = Table(table_rows, colWidths=[9.5 * cm, 9.5 * cm])
     devis_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -371,7 +399,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         ]))
         elements.append(detail_table)
     # Si aucune liste détaillée n'est fournie mais que des totaux existent, afficher ces derniers dans un tableau simple
-    elif any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total', 'arrondis_total']):
+    elif any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total']):
         elements.append(PageBreak())
         elements.append(Paragraph("Détail des calculs du prix", title_style))
         elements.append(Spacer(1, 0.3 * cm))
@@ -388,8 +416,6 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
             detail_rows.append(["Traversins", f"{prix_details['traversin_total']:.2f} €"])
         if 'surmatelas_total' in prix_details:
             detail_rows.append(["Surmatelas", f"{prix_details['surmatelas_total']:.2f} €"])
-        if 'arrondis_total' in prix_details:
-            detail_rows.append(["Arrondis", f"{prix_details['arrondis_total']:.2f} €"])
         detail_rows.append(["Total HT", f"{prix_details.get('prix_ht', 0.0):.2f} €"])
         detail_rows.append(["TVA (20 %)", f"{prix_details.get('tva', 0.0):.2f} €"])
         detail_rows.append(["Total TTC", f"{prix_details.get('total_ttc', 0.0):.2f} €"])
