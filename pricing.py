@@ -604,7 +604,8 @@ def calculer_prix_total(
                  traversin_total + surmatelas_total + accoudoir_total + arrondis_total)
     prix_ht = round(total_ttc / 1.20, 2)
     tva = round(total_ttc - prix_ht, 2)
-    cout_revient_ht = round(prix_ht * 0.70, 2)
+    # Le coût de revient initial basé sur 70 % du HT n'est plus utilisé :
+    cout_revient_ht = round(prix_ht * 0.70, 2)  # conservé pour compatibilité mais remplacé plus bas
     # === Calcul du coût de revient détaillé (HT) ===
     # Coût de revient de la mousse selon la densité : coefficients spécifiques
     density_coeff_map = {
@@ -619,59 +620,104 @@ def calculer_prix_total(
     cr_details: List[Dict[str, object]] = []
     # Coût de revient mousse et tissu pour chaque coussin droit
     for idx, (length, width) in enumerate(dims, start=1):
-        cr_foam = (length * width * epaisseur_val) / 1_000_000.0 * coeff_cr
+        # Déterminer si la dimension correspond à une mousse standard avec tarif fixe
+        std_key = (int(round(length)), int(round(width)))
+        is_std_size = (epaisseur_val == 25.0) and std_key in {
+            (200, 70), (200, 80), (90, 90), (100, 100)
+        }
+        if is_std_size:
+            # Tarifs fixes pour mousse standard (par densité)
+            std_foam_prices = {
+                (200, 70): {'D25': 42.55, 'D30': 51.0, 'HR35': 65.0, 'HR45': 84.0},
+                (200, 80): {'D25': 63.0, 'D30': 75.2, 'HR35': 76.2, 'HR45': 98.0},
+                (90, 90): {'D25': 31.9, 'D30': 38.1, 'HR35': 38.9, 'HR45': 49.6},
+                (100, 100): {'D25': 39.3, 'D30': 47.0, 'HR35': 48.0, 'HR45': 61.20}
+            }
+            std_fabric_prices = {
+                (200, 70): 34.40, (200, 80): 34.40, (90, 90): 28.40, (100, 100): 28.40
+            }
+            # Sélectionner le prix standard en fonction de la densité (type de mousse)
+            foam_price_std = std_foam_prices[std_key].get(type_mousse or 'D25', std_foam_prices[std_key]['D25'])
+            fabric_price_std = std_fabric_prices[std_key]
+            cr_foam = foam_price_std
+            cr_fabric = fabric_price_std
+            cr_formula_foam = 'prix standard'
+            cr_formula_fabric = 'prix standard'
+        else:
+            # Calcul conventionnel de la mousse
+            cr_foam = (length * width * epaisseur_val) / 1_000_000.0 * coeff_cr
+            cr_formula_foam = f'({length}*{width}*{epaisseur_val})/1 000 000*{coeff_cr}'
+            # Calcul conventionnel du tissu
+            if (2.0 + width + epaisseur_val * 2.0) <= 140.0:
+                cr_fabric = (length / 100.0) * 11.2 + 15.0
+                cr_formula_fabric = f'({length}/100)*11.2+15'
+            else:
+                cr_fabric = (length / 100.0) * 16.16 + 15.0
+                cr_formula_fabric = f'({length}/100)*16.16+15'
         cr_foam_total += cr_foam
         cr_details.append({
             'category': 'foam',
             'item': f'Mousse droite {idx} ({length}×{width} cm)',
             'quantity': 1,
             'unit_price': round(cr_foam, 2),
-            'formula': f'({length}*{width}*{epaisseur_val})/1 000 000*{coeff_cr}',
+            'formula': cr_formula_foam,
             'total_price': round(cr_foam, 2)
         })
-        # Tissu pour le coût de revient
-        # Condition : si 2 + largeur + épaisseur*2 <= 140 then (longueur/100*11.2)+15 else (longueur/100*16.16)+15
-        if (2.0 + width + epaisseur_val * 2.0) <= 140.0:
-            cr_fabric = (length / 100.0) * 11.2 + 15.0
-            cr_formula = f'({length}/100)*11.2+15'
-        else:
-            cr_fabric = (length / 100.0) * 16.16 + 15.0
-            cr_formula = f'({length}/100)*16.16+15'
         cr_fabric_total += cr_fabric
         cr_details.append({
             'category': 'fabric',
             'item': f'Tissu droite {idx} ({length}×{width} cm)',
             'quantity': 1,
             'unit_price': round(cr_fabric, 2),
-            'formula': cr_formula,
+            'formula': cr_formula_fabric,
             'total_price': round(cr_fabric, 2)
         })
     # Coût de revient mousse et tissu pour les coussins d’angle
     for idx, (length, width) in enumerate(dims_angle, start=1):
-        cr_foam = (length * width * epaisseur_val) / 1_000_000.0 * coeff_cr
+        # Déterminer si la dimension d'angle est standard
+        std_key = (int(round(length)), int(round(width)))
+        is_std_size = (epaisseur_val == 25.0) and std_key in {
+            (200, 70), (200, 80), (90, 90), (100, 100)
+        }
+        if is_std_size:
+            std_foam_prices = {
+                (200, 70): {'D25': 42.55, 'D30': 51.0, 'HR35': 65.0, 'HR45': 84.0},
+                (200, 80): {'D25': 63.0, 'D30': 75.2, 'HR35': 76.2, 'HR45': 98.0},
+                (90, 90): {'D25': 31.9, 'D30': 38.1, 'HR35': 38.9, 'HR45': 49.6},
+                (100, 100): {'D25': 39.3, 'D30': 47.0, 'HR35': 48.0, 'HR45': 61.20}
+            }
+            std_fabric_prices = {
+                (200, 70): 34.40, (200, 80): 34.40, (90, 90): 28.40, (100, 100): 28.40
+            }
+            cr_foam = std_foam_prices[std_key].get(type_mousse or 'D25', std_foam_prices[std_key]['D25'])
+            cr_fabric = std_fabric_prices[std_key]
+            cr_formula_foam = 'prix standard'
+            cr_formula_fabric = 'prix standard'
+        else:
+            cr_foam = (length * width * epaisseur_val) / 1_000_000.0 * coeff_cr
+            cr_formula_foam = f'({length}*{width}*{epaisseur_val})/1 000 000*{coeff_cr}'
+            if (2.0 + width + epaisseur_val * 2.0) <= 140.0:
+                cr_fabric = (length / 100.0) * 11.2 + 15.0
+                cr_formula_fabric = f'({length}/100)*11.2+15'
+            else:
+                cr_fabric = (length / 100.0) * 16.16 + 15.0
+                cr_formula_fabric = f'({length}/100)*16.16+15'
         cr_foam_total += cr_foam
         cr_details.append({
             'category': 'foam',
             'item': f'Mousse angle {idx} ({length}×{width} cm)',
             'quantity': 1,
             'unit_price': round(cr_foam, 2),
-            'formula': f'({length}*{width}*{epaisseur_val})/1 000 000*{coeff_cr}',
+            'formula': cr_formula_foam,
             'total_price': round(cr_foam, 2)
         })
-        # Tissu pour le coût de revient (angle)
-        if (2.0 + width + epaisseur_val * 2.0) <= 140.0:
-            cr_fabric = (length / 100.0) * 11.2 + 15.0
-            cr_formula = f'({length}/100)*11.2+15'
-        else:
-            cr_fabric = (length / 100.0) * 16.16 + 15.0
-            cr_formula = f'({length}/100)*16.16+15'
         cr_fabric_total += cr_fabric
         cr_details.append({
             'category': 'fabric',
             'item': f'Tissu angle {idx} ({length}×{width} cm)',
             'quantity': 1,
             'unit_price': round(cr_fabric, 2),
-            'formula': cr_formula,
+            'formula': cr_formula_fabric,
             'total_price': round(cr_fabric, 2)
         })
     # Coût de revient des supports (banquettes, angles et dossiers)
@@ -713,7 +759,7 @@ def calculer_prix_total(
     if nb_dossiers > 0:
         cr_dossier_unit = 132.0 + 8.0 * 5.5
         cr_dossier_total = cr_dossier_unit * nb_dossiers
-        cr_support_total += cr_dossier_total
+        # Ajouter une ligne séparée pour les dossiers sans les incorporer au total des banquettes
         cr_details.append({
             'category': 'support',
             'item': 'Dossier',
@@ -832,13 +878,19 @@ def calculer_prix_total(
         'formula': '100',
         'total_price': 100.0
     })
-    # Total coût de revient HT
-    cr_total_ht = (cr_foam_total + cr_fabric_total + cr_support_total + cr_accoudoir_total +
-                   cr_dossier_total + cr_cushion_total + cr_deco_total + cr_traversin_total +
-                   cr_surmatelas_total + cr_arrondis_total + cr_delivery_total)
+    # Total coût de revient HT : addition de toutes les composantes sans double comptage
+    cr_total_ht = (
+        cr_foam_total + cr_fabric_total +
+        cr_support_total + cr_dossier_total + cr_accoudoir_total +
+        cr_cushion_total + cr_deco_total + cr_traversin_total +
+        cr_surmatelas_total + cr_arrondis_total + cr_delivery_total
+    )
 
     # Recalculer la marge HT : marge = prix de vente TTC / 1.2 - coût de revient HT
     marge_ht = round((total_ttc / 1.20) - cr_total_ht, 2)
+
+    # Mettre à jour le coût de revient HT avec le calcul réel (écrase la version 70 %)
+    cout_revient_ht = round(cr_total_ht, 2)
 
     return {
         'prix_ht': prix_ht,
@@ -856,7 +908,8 @@ def calculer_prix_total(
         # --- Informations de coût de revient ---
         'cr_foam_total': round(cr_foam_total, 2),
         'cr_fabric_total': round(cr_fabric_total, 2),
-        'cr_support_total': round(cr_support_total + cr_dossier_total, 2),
+        'cr_support_total': round(cr_support_total, 2),
+        'cr_dossier_total': round(cr_dossier_total, 2),
         'cr_accoudoir_total': round(cr_accoudoir_total, 2),
         'cr_cushion_total': round(cr_cushion_total, 2),
         'cr_deco_total': round(cr_deco_total, 2),
