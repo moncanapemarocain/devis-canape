@@ -30,23 +30,20 @@ IMAGE_FILES = {
 }
 
 
-def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=None,
-                      reduction_ttc=0.0, show_detail_devis=True, show_detail_cr=True):
+def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=None, reduction_ttc=0.0, *, include_detail_pages: bool = True):
     """
-    Génère un PDF de devis. La première page contient le résumé et le schéma. Des pages
-    supplémentaires peuvent être ajoutées pour présenter le détail du prix (page 2) et
-    le détail du coût de revient (page 3). Ces pages ne sont ajoutées que si
-    ``show_detail_devis`` et ``show_detail_cr`` sont à ``True``.
+    Génère un PDF de devis. La première page contient le résumé et le schéma. Par défaut, une
+    ou plusieurs pages supplémentaires présentant les calculs détaillés sont ajoutées. Si
+    ``include_detail_pages`` est ``False``, ces pages additionnelles (page 2 et page 3) ne
+    seront pas générées.
 
-    :param config: Configuration du canapé et des options.
-    :param prix_details: Dictionnaire renvoyé par ``calculer_prix_total`` contenant les totaux et
-        éventuellement des listes ``calculation_details`` et ``calculation_details_cr``.
-    :param schema_image: Image du schéma généré (objet BytesIO ou chemin), optionnel.
-    :param breakdown_rows: Tableau simple du détail du devis, optionnel.
-    :param reduction_ttc: Montant de réduction TTC appliqué.
-    :param show_detail_devis: Booléen contrôlant l'ajout de la page 2 détaillant le prix.
-    :param show_detail_cr: Booléen contrôlant l'ajout de la page 3 détaillant le coût de
-        revient.
+    :param config: configuration du canapé et informations client
+    :param prix_details: dictionnaire de calculs de prix provenant de ``pricing.calculer_prix_total``
+    :param schema_image: buffer d'image du schéma (ou ``None``)
+    :param breakdown_rows: tableau récapitulatif optionnel à afficher en première page
+    :param reduction_ttc: montant de la remise TTC appliquée (affichée en récapitulatif)
+    :param include_detail_pages: si ``True``, génère les pages détaillées du prix et du coût de
+        revient (pages 2 et 3). Si ``False``, ces pages sont omises.
     """
     buffer = BytesIO()
     
@@ -353,251 +350,70 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     ]))
     elements.append(devis_table)
 
-    # Préparer les données détaillées pour le prix et le coût de revient
+    # Si des détails de calculs complets sont disponibles, générer une page supplémentaire les affichant.
     calculation_details = prix_details.get('calculation_details', None)
-    cr_details = prix_details.get('calculation_details_cr', None)
+    if calculation_details:
+        elements.append(PageBreak())
+        elements.append(Paragraph("Détail des calculs du prix", title_style))
+        elements.append(Spacer(1, 0.3 * cm))
+        # Créer un tableau avec colonnes : Catégorie, Article, Quantité, Prix unitaire, Formule, Total
+        table_data = []
+        # En-têtes
+        table_data.append([
+            Paragraph('<b>Catégorie</b>', styles['Normal']),
+            Paragraph('<b>Article</b>', styles['Normal']),
+            Paragraph('<b>Qté</b>', styles['Normal']),
+            Paragraph('<b>Prix unitaire</b>', styles['Normal']),
+            Paragraph('<b>Formule</b>', styles['Normal']),
+            Paragraph('<b>Total</b>', styles['Normal'])
+        ])
+        # Rows for each calculation detail
+        for entry in calculation_details:
+            cat = entry.get('category', '')
+            item = entry.get('item', '')
+            qty = entry.get('quantity', '')
+            unit = entry.get('unit_price', '')
+            formula = entry.get('formula', '')
+            total = entry.get('total_price', '')
+            # Ensure floats are formatted with 2 decimals
+            if isinstance(unit, (int, float)):
+                unit = f"{unit:.2f} €"
+            if isinstance(total, (int, float)):
+                total = f"{total:.2f} €"
+            table_data.append([cat.capitalize(), item, qty, unit, formula, total])
+        # Append summary totals at the end
+        table_data.append([
+            Paragraph('<b>Total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('prix_ht', 0.0):.2f} €"
+        ])
+        table_data.append([
+            Paragraph('<b>TVA (20 %)</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('tva', 0.0):.2f} €"
+        ])
+        table_data.append([
+            Paragraph('<b>Total TTC</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('total_ttc', 0.0):.2f} €"
+        ])
+        # Define column widths (6 columns)
+        col_widths = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
+        detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        detail_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
+            ('ALIGN', (2, 1), (2, -1), 'CENTER'),  # quantity column
+            ('ALIGN', (3, 1), (3, -1), 'RIGHT'),  # unit price column
+            ('ALIGN', (5, 1), (5, -1), 'RIGHT'),  # total column
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
+            ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
+            ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(detail_table)
 
-    # Gestion conditionnelle des pages 2 et 3 en fonction des options
-    if show_detail_devis:
-        # Priorité à la liste complète de détails
-        if calculation_details:
-            elements.append(PageBreak())
-            elements.append(Paragraph("Détail des calculs du prix", title_style))
-            elements.append(Spacer(1, 0.3 * cm))
-            # Créer un tableau avec colonnes : Catégorie, Article, Quantité, Prix unitaire, Formule, Total
-            table_data = []
-            # En-têtes
-            table_data.append([
-                Paragraph('<b>Catégorie</b>', styles['Normal']),
-                Paragraph('<b>Article</b>', styles['Normal']),
-                Paragraph('<b>Qté</b>', styles['Normal']),
-                Paragraph('<b>Prix unitaire</b>', styles['Normal']),
-                Paragraph('<b>Formule</b>', styles['Normal']),
-                Paragraph('<b>Total</b>', styles['Normal'])
-            ])
-            # Rows for each calculation detail
-            for entry in calculation_details:
-                cat = entry.get('category', '')
-                item = entry.get('item', '')
-                qty = entry.get('quantity', '')
-                unit = entry.get('unit_price', '')
-                formula = entry.get('formula', '')
-                total = entry.get('total_price', '')
-                # Ensure floats are formatted with 2 decimals
-                if isinstance(unit, (int, float)):
-                    unit = f"{unit:.2f} €"
-                if isinstance(total, (int, float)):
-                    total = f"{total:.2f} €"
-                table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-            # Append summary totals at the end
-            table_data.append([
-                Paragraph('<b>Total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('prix_ht', 0.0):.2f} €"
-            ])
-            table_data.append([
-                Paragraph('<b>TVA (20 %)</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('tva', 0.0):.2f} €"
-            ])
-            table_data.append([
-                Paragraph('<b>Total TTC</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('total_ttc', 0.0):.2f} €"
-            ])
-            # Define column widths (6 columns)
-            col_widths = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-            detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
-            detail_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                ('ALIGN', (2, 1), (2, -1), 'CENTER'),  # quantity column
-                ('ALIGN', (3, 1), (3, -1), 'RIGHT'),  # unit price column
-                ('ALIGN', (5, 1), (5, -1), 'RIGHT'),  # total column
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ]))
-            elements.append(detail_table)
-
-            # Si on souhaite également voir le coût de revient, on l'ajoute sur une page suivante
-            if show_detail_cr and cr_details:
-                elements.append(PageBreak())
-                elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
-                elements.append(Spacer(1, 0.3 * cm))
-                cr_table_data = []
-                cr_table_data.append([
-                    Paragraph('<b>Catégorie</b>', styles['Normal']),
-                    Paragraph('<b>Article</b>', styles['Normal']),
-                    Paragraph('<b>Qté</b>', styles['Normal']),
-                    Paragraph('<b>Coût unitaire</b>', styles['Normal']),
-                    Paragraph('<b>Formule</b>', styles['Normal']),
-                    Paragraph('<b>Total</b>', styles['Normal'])
-                ])
-                for entry in cr_details:
-                    cat = entry.get('category', '')
-                    item = entry.get('item', '')
-                    qty = entry.get('quantity', '')
-                    unit = entry.get('unit_price', '')
-                    formula = entry.get('formula', '')
-                    total = entry.get('total_price', '')
-                    if isinstance(unit, (int, float)):
-                        unit = f"{unit:.2f} €"
-                    if isinstance(total, (int, float)):
-                        total = f"{total:.2f} €"
-                    cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-                cr_table_data.append([
-                    Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
-                ])
-                if 'marge_ht' in prix_details:
-                    cr_table_data.append([
-                        Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
-                    ])
-                cr_col_widths = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-                cr_detail_table = Table(cr_table_data, colWidths=cr_col_widths, repeatRows=1)
-                cr_detail_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                    ('ALIGN', (2, 1), (2, -1), 'CENTER'),
-                    ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
-                    ('ALIGN', (5, 1), (5, -1), 'RIGHT'),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                    ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ]))
-                elements.append(cr_detail_table)
-        else:
-            # Aucune liste complète mais des totaux disponibles : créer une page simple
-            if any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total']):
-                elements.append(PageBreak())
-                elements.append(Paragraph("Détail des calculs du prix", title_style))
-                elements.append(Spacer(1, 0.3 * cm))
-                detail_rows = []
-                if 'foam_total' in prix_details:
-                    detail_rows.append(["Mousse", f"{prix_details['foam_total']:.2f} €"])
-                if 'fabric_total' in prix_details:
-                    detail_rows.append(["Tissu", f"{prix_details['fabric_total']:.2f} €"])
-                if 'support_total' in prix_details:
-                    detail_rows.append(["Supports (banquettes, angles, dossiers)", f"{prix_details['support_total']:.2f} €"])
-                if 'cushion_total' in prix_details:
-                    detail_rows.append(["Coussins (assise & déco)", f"{prix_details['cushion_total']:.2f} €"])
-                if 'traversin_total' in prix_details:
-                    detail_rows.append(["Traversins", f"{prix_details['traversin_total']:.2f} €"])
-                if 'surmatelas_total' in prix_details:
-                    detail_rows.append(["Surmatelas", f"{prix_details['surmatelas_total']:.2f} €"])
-                detail_rows.append(["Total HT", f"{prix_details.get('prix_ht', 0.0):.2f} €"])
-                detail_rows.append(["TVA (20 %)", f"{prix_details.get('tva', 0.0):.2f} €"])
-                detail_rows.append(["Total TTC", f"{prix_details.get('total_ttc', 0.0):.2f} €"])
-                col_widths_simple = [10 * cm, 8 * cm]
-                detail_table_simple = Table(detail_rows, colWidths=col_widths_simple)
-                detail_table_simple.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                    ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ]))
-                elements.append(detail_table_simple)
-                # Ajouter ensuite la page de coût de revient si demandée
-                if show_detail_cr and cr_details:
-                    elements.append(PageBreak())
-                    elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
-                    elements.append(Spacer(1, 0.3 * cm))
-                    cr_table_data = []
-                    cr_table_data.append([
-                        Paragraph('<b>Catégorie</b>', styles['Normal']),
-                        Paragraph('<b>Article</b>', styles['Normal']),
-                        Paragraph('<b>Qté</b>', styles['Normal']),
-                        Paragraph('<b>Coût unitaire</b>', styles['Normal']),
-                        Paragraph('<b>Formule</b>', styles['Normal']),
-                        Paragraph('<b>Total</b>', styles['Normal'])
-                    ])
-                    for entry in cr_details:
-                        cat = entry.get('category', '')
-                        item = entry.get('item', '')
-                        qty = entry.get('quantity', '')
-                        unit = entry.get('unit_price', '')
-                        formula = entry.get('formula', '')
-                        total = entry.get('total_price', '')
-                        if isinstance(unit, (int, float)):
-                            unit = f"{unit:.2f} €"
-                        if isinstance(total, (int, float)):
-                            total = f"{total:.2f} €"
-                        cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-                    cr_table_data.append([
-                        Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
-                    ])
-                    if 'marge_ht' in prix_details:
-                        cr_table_data.append([
-                            Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
-                        ])
-                    cr_col_widths_simple = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-                    cr_detail_table_simple = Table(cr_table_data, colWidths=cr_col_widths_simple, repeatRows=1)
-                    cr_detail_table_simple.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                        ('ALIGN', (2, 1), (2, -1), 'CENTER'),
-                        ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
-                        ('ALIGN', (5, 1), (5, -1), 'RIGHT'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                        ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                        ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                        ('FONTSIZE', (0, 0), (-1, -1), 9),
-                    ]))
-                    elements.append(cr_detail_table_simple)
-            else:
-                # Pas de détails ni de totaux à afficher, mais on peut quand même afficher le coût de revient si demandé
-                if show_detail_cr and cr_details:
-                    elements.append(PageBreak())
-                    elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
-                    elements.append(Spacer(1, 0.3 * cm))
-                    cr_table_data = []
-                    cr_table_data.append([
-                        Paragraph('<b>Catégorie</b>', styles['Normal']),
-                        Paragraph('<b>Article</b>', styles['Normal']),
-                        Paragraph('<b>Qté</b>', styles['Normal']),
-                        Paragraph('<b>Coût unitaire</b>', styles['Normal']),
-                        Paragraph('<b>Formule</b>', styles['Normal']),
-                        Paragraph('<b>Total</b>', styles['Normal'])
-                    ])
-                    for entry in cr_details:
-                        cat = entry.get('category', '')
-                        item = entry.get('item', '')
-                        qty = entry.get('quantity', '')
-                        unit = entry.get('unit_price', '')
-                        formula = entry.get('formula', '')
-                        total = entry.get('total_price', '')
-                        if isinstance(unit, (int, float)):
-                            unit = f"{unit:.2f} €"
-                        if isinstance(total, (int, float)):
-                            total = f"{total:.2f} €"
-                        cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-                    cr_table_data.append([
-                        Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
-                    ])
-                    if 'marge_ht' in prix_details:
-                        cr_table_data.append([
-                            Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
-                        ])
-                    cr_col_widths_only = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-                    cr_detail_table_only = Table(cr_table_data, colWidths=cr_col_widths_only, repeatRows=1)
-                    cr_detail_table_only.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                        ('ALIGN', (2, 1), (2, -1), 'CENTER'),
-                        ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
-                        ('ALIGN', (5, 1), (5, -1), 'RIGHT'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                        ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                        ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                        ('FONTSIZE', (0, 0), (-1, -1), 9),
-                    ]))
-                    elements.append(cr_detail_table_only)
-    else:
-        # Ne pas afficher le détail du prix ; seulement, si demandé, afficher le coût de revient
-        if show_detail_cr and cr_details:
+        # Génération d'une page dédiée au coût de revient si les détails existent
+        cr_details = prix_details.get('calculation_details_cr', None)
+        if cr_details:
             elements.append(PageBreak())
             elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
             elements.append(Spacer(1, 0.3 * cm))
+            # Préparer le tableau pour le coût de revient
             cr_table_data = []
             cr_table_data.append([
                 Paragraph('<b>Catégorie</b>', styles['Normal']),
@@ -619,16 +435,18 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
                 if isinstance(total, (int, float)):
                     total = f"{total:.2f} €"
                 cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
+            # Ajouter le total du coût de revient et la marge en bas du tableau
             cr_table_data.append([
                 Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
             ])
+            # Afficher la marge HT si disponible
             if 'marge_ht' in prix_details:
                 cr_table_data.append([
                     Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
                 ])
-            cr_col_widths_only2 = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-            cr_detail_table_only2 = Table(cr_table_data, colWidths=cr_col_widths_only2, repeatRows=1)
-            cr_detail_table_only2.setStyle(TableStyle([
+            cr_col_widths = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
+            cr_detail_table = Table(cr_table_data, colWidths=cr_col_widths, repeatRows=1)
+            cr_detail_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
                 ('ALIGN', (2, 1), (2, -1), 'CENTER'),
                 ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
@@ -639,7 +457,41 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
                 ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
                 ('FONTSIZE', (0, 0), (-1, -1), 9),
             ]))
-            elements.append(cr_detail_table_only2)
+            elements.append(cr_detail_table)
+    # Si aucune liste détaillée n'est fournie mais que des totaux existent, afficher ces derniers dans un tableau simple
+    elif any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total']):
+        elements.append(PageBreak())
+        elements.append(Paragraph("Détail des calculs du prix", title_style))
+        elements.append(Spacer(1, 0.3 * cm))
+        detail_rows = []
+        if 'foam_total' in prix_details:
+            detail_rows.append(["Mousse", f"{prix_details['foam_total']:.2f} €"])
+        if 'fabric_total' in prix_details:
+            detail_rows.append(["Tissu", f"{prix_details['fabric_total']:.2f} €"])
+        if 'support_total' in prix_details:
+            detail_rows.append(["Supports (banquettes, angles, dossiers)", f"{prix_details['support_total']:.2f} €"])
+        if 'cushion_total' in prix_details:
+            detail_rows.append(["Coussins (assise & déco)", f"{prix_details['cushion_total']:.2f} €"])
+        if 'traversin_total' in prix_details:
+            detail_rows.append(["Traversins", f"{prix_details['traversin_total']:.2f} €"])
+        if 'surmatelas_total' in prix_details:
+            detail_rows.append(["Surmatelas", f"{prix_details['surmatelas_total']:.2f} €"])
+        detail_rows.append(["Total HT", f"{prix_details.get('prix_ht', 0.0):.2f} €"])
+        detail_rows.append(["TVA (20 %)", f"{prix_details.get('tva', 0.0):.2f} €"])
+        detail_rows.append(["Total TTC", f"{prix_details.get('total_ttc', 0.0):.2f} €"])
+        col_widths = [10 * cm, 8 * cm]
+        detail_table = Table(detail_rows, colWidths=col_widths)
+        detail_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
+            ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
+            ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(detail_table)
 
     # Construction du document PDF : toutes les pages assemblées, avec pied de page sur chacune
     doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
