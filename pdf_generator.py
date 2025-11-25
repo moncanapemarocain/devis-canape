@@ -314,7 +314,98 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     ]))
     elements.append(devis_table)
 
-    # Construction du document PDF : une seule page, avec pied de page sur toutes les pages
+    # Si des détails de calculs complets sont disponibles, générer une page supplémentaire les affichant.
+    calculation_details = prix_details.get('calculation_details', None)
+    if calculation_details:
+        elements.append(PageBreak())
+        elements.append(Paragraph("Détail des calculs du prix", title_style))
+        elements.append(Spacer(1, 0.3 * cm))
+        # Créer un tableau avec colonnes : Catégorie, Article, Quantité, Prix unitaire, Formule, Total
+        table_data = []
+        # En-têtes
+        table_data.append([
+            Paragraph('<b>Catégorie</b>', styles['Normal']),
+            Paragraph('<b>Article</b>', styles['Normal']),
+            Paragraph('<b>Qté</b>', styles['Normal']),
+            Paragraph('<b>Prix unitaire</b>', styles['Normal']),
+            Paragraph('<b>Formule</b>', styles['Normal']),
+            Paragraph('<b>Total</b>', styles['Normal'])
+        ])
+        # Rows for each calculation detail
+        for entry in calculation_details:
+            cat = entry.get('category', '')
+            item = entry.get('item', '')
+            qty = entry.get('quantity', '')
+            unit = entry.get('unit_price', '')
+            formula = entry.get('formula', '')
+            total = entry.get('total_price', '')
+            # Ensure floats are formatted with 2 decimals
+            if isinstance(unit, (int, float)):
+                unit = f"{unit:.2f} €"
+            if isinstance(total, (int, float)):
+                total = f"{total:.2f} €"
+            table_data.append([cat.capitalize(), item, qty, unit, formula, total])
+        # Append summary totals at the end
+        table_data.append([
+            Paragraph('<b>Total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('prix_ht', 0.0):.2f} €"
+        ])
+        table_data.append([
+            Paragraph('<b>TVA (20 %)</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('tva', 0.0):.2f} €"
+        ])
+        table_data.append([
+            Paragraph('<b>Total TTC</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('total_ttc', 0.0):.2f} €"
+        ])
+        # Define column widths (6 columns)
+        col_widths = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
+        detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        detail_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
+            ('ALIGN', (2, 1), (2, -1), 'CENTER'),  # quantity column
+            ('ALIGN', (3, 1), (3, -1), 'RIGHT'),  # unit price column
+            ('ALIGN', (5, 1), (5, -1), 'RIGHT'),  # total column
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
+            ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
+            ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(detail_table)
+    # Si aucune liste détaillée n'est fournie mais que des totaux existent, afficher ces derniers dans un tableau simple
+    elif any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total']):
+        elements.append(PageBreak())
+        elements.append(Paragraph("Détail des calculs du prix", title_style))
+        elements.append(Spacer(1, 0.3 * cm))
+        detail_rows = []
+        if 'foam_total' in prix_details:
+            detail_rows.append(["Mousse", f"{prix_details['foam_total']:.2f} €"])
+        if 'fabric_total' in prix_details:
+            detail_rows.append(["Tissu", f"{prix_details['fabric_total']:.2f} €"])
+        if 'support_total' in prix_details:
+            detail_rows.append(["Supports (banquettes, angles, dossiers)", f"{prix_details['support_total']:.2f} €"])
+        if 'cushion_total' in prix_details:
+            detail_rows.append(["Coussins (assise & déco)", f"{prix_details['cushion_total']:.2f} €"])
+        if 'traversin_total' in prix_details:
+            detail_rows.append(["Traversins", f"{prix_details['traversin_total']:.2f} €"])
+        if 'surmatelas_total' in prix_details:
+            detail_rows.append(["Surmatelas", f"{prix_details['surmatelas_total']:.2f} €"])
+        detail_rows.append(["Total HT", f"{prix_details.get('prix_ht', 0.0):.2f} €"])
+        detail_rows.append(["TVA (20 %)", f"{prix_details.get('tva', 0.0):.2f} €"])
+        detail_rows.append(["Total TTC", f"{prix_details.get('total_ttc', 0.0):.2f} €"])
+        col_widths = [10 * cm, 8 * cm]
+        detail_table = Table(detail_rows, colWidths=col_widths)
+        detail_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
+            ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
+            ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(detail_table)
+
+    # Construction du document PDF : toutes les pages assemblées, avec pied de page sur chacune
     doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     buffer.seek(0)
     return buffer
