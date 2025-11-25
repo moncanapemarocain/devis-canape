@@ -489,4 +489,3 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     buffer.seek(0)
     return buffer
-
