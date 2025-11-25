@@ -373,21 +373,14 @@ with tab6:
     # Enregistrer la réduction dans la session pour qu'elle soit accessible lors du calcul du devis
     st.session_state['reduction_ttc'] = reduction_ttc
 
-    # Options pour afficher ou non les pages détaillées du devis et du coût de revient dans le PDF
-    show_detail_devis = st.checkbox(
-        "Afficher le détail du devis (page 2)",
+    # Checkbox pour inclure ou non les pages détaillées du devis (pages 2 et 3)
+    include_detail_pages = st.checkbox(
+        "Inclure les pages détaillées (Pages 2 et 3)",
         value=False,
-        help="Lorsque cette option est cochée, la page 2 du PDF affichera le tableau complet des calculs du prix."
+        help="Si cette case est cochée, le PDF comprendra les pages de détail des calculs du prix et du coût de revient."
     )
-    show_detail_cr = st.checkbox(
-        "Afficher le détail du coût de revient (page 3)",
-        value=False,
-        help="Lorsque cette option est cochée, la page 3 du PDF affichera le tableau complet des calculs du coût de revient."
-    )
-
-    # Stocker les choix dans la session pour les utiliser lors de la génération du PDF
-    st.session_state['show_detail_devis'] = show_detail_devis
-    st.session_state['show_detail_cr'] = show_detail_cr
+    # Stocker la préférence dans la session pour l'utiliser lors de la génération du PDF
+    st.session_state['include_detail_pages'] = include_detail_pages
 
     st.markdown("---")
     st.markdown("### Actions")
@@ -734,14 +727,22 @@ with tab6:
                     # Récupération du tableau détaillé du devis depuis la session
                     breakdown_rows = st.session_state.get('breakdown_rows', None)
                     
+                    # Déterminer si les pages de détail doivent être incluses en fonction de la case à cocher
+                    include_detail_pages = st.session_state.get('include_detail_pages', False)
+                    # Si l'utilisateur ne souhaite pas de pages détaillées, supprimer les clés associées
+                    if not include_detail_pages:
+                        # Créer une copie pour ne pas modifier la structure originale utilisée ailleurs
+                        prix_details = prix_details.copy()
+                        keys_to_remove = [
+                            'calculation_details', 'calculation_details_cr',
+                            'foam_total', 'fabric_total', 'support_total', 'cushion_total',
+                            'traversin_total', 'surmatelas_total'
+                        ]
+                        for k in keys_to_remove:
+                            prix_details.pop(k, None)
                     pdf_buffer = generer_pdf_devis(
-                        config,
-                        prix_details,
-                        schema_image=img_buffer,
-                        breakdown_rows=breakdown_rows,
-                        reduction_ttc=prix_details.get('reduction_ttc', 0.0),
-                        show_detail_devis=st.session_state.get('show_detail_devis', False),
-                        show_detail_cr=st.session_state.get('show_detail_cr', False)
+                        config, prix_details, schema_image=img_buffer,
+                        breakdown_rows=breakdown_rows, reduction_ttc=prix_details.get('reduction_ttc', 0.0)
                     )
                     
                     st.download_button(
