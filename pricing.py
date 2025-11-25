@@ -173,3 +173,148 @@ def calculer_prix_from_data(
         "prix_arrondis_ttc": prix_arrondis,
         "total_ttc": total_ttc,
     }
+
+
+# -----------------------------------------------------------------------------
+# Wrapper de compatibilité
+#
+# Pour assurer une compatibilité avec l'ancienne API de calcul (utilisant
+# `calculer_prix_total` avec de nombreux paramètres), nous proposons un
+# wrapper qui convertit les arguments simples en données segmentées et
+# appelle ensuite `calculer_prix_from_data`. Cette implémentation repose
+# sur des heuristiques simples :
+#  - Les banquettes sont déterminées à partir des longueurs `tx`, `ty` et `tz`.
+#  - Les banquettes d'angle sont approximées à partir de la profondeur et d'un
+#    carré (profondeur + 20 cm).
+#  - Le nombre de dossiers et d'accoudoirs est basé sur les indicateurs
+#    booléens fournis.
+#  - Les coussins d'assise sont évalués en fonction du type sélectionné ; les
+#    tailles non numériques sont considérées comme des coussins « valise ».
+#  - Les traversins, coussins déco et surmatelas proviennent directement
+#    des paramètres.
+#
+# Le dictionnaire retourné est conforme aux attentes de l'application, avec
+# les clés 'prix_ht', 'tva', 'total_ttc' et 'cout_revient_ht'.
+
+def calculer_prix_total(
+    type_canape: str,
+    tx: float,
+    ty: float,
+    tz: float,
+    profondeur: float,
+    type_coussins: str,
+    type_mousse: str,
+    epaisseur: float,
+    acc_left: bool,
+    acc_right: bool,
+    acc_bas: bool,
+    dossier_left: bool,
+    dossier_bas: bool,
+    dossier_right: bool,
+    nb_coussins_deco: int,
+    nb_traversins_supp: int,
+    has_surmatelas: bool,
+    has_meridienne: bool,
+) -> Dict[str, float]:
+    """Compatibilité avec l'ancienne signature de calculer_prix_total.
+
+    Cette fonction convertit les paramètres de haut niveau (dimensions,
+    options sélectionnées) en listes de banquettes et d'angles, puis
+    appelle `calculer_prix_from_data` pour obtenir le total TTC.
+    """
+    # Conversion des longueurs en listes de banquettes droites
+    banquette_dims: List[Tuple[float, float]] = []
+    angle_dims: List[Tuple[float, float]] = []
+    # Détermination des banquettes et angles selon le type de canapé
+    type_lower = (type_canape or "").lower()
+    # Taille de l'angle approximée : profondeur + 20 cm (mais limitée à profondeur
+    # pour éviter des valeurs aberrantes si la profondeur est déjà grande)
+    angle_size = profondeur + 20.0
+    if "simple" in type_lower:
+        banquette_dims = [(tx or 0.0, profondeur)]
+    elif "l - sans" in type_lower or ("l" in type_lower and "angle" not in type_lower):
+        # L sans angle
+        banquette_dims = [(ty or 0.0, profondeur), (tx or 0.0, profondeur)]
+    elif "l" in type_lower and ("angle" in type_lower or "lf" in type_lower):
+        # L avec angle : deux banquettes droites et un angle
+        banquette_dims = [(ty or 0.0, profondeur), (tx or 0.0, profondeur)]
+        angle_dims = [(angle_size, angle_size)]
+    elif "u" in type_lower:
+        # U sans angle : trois banquettes droites
+        banquette_dims = [(ty or 0.0, profondeur), (tx or 0.0, profondeur), (tz or 0.0, profondeur)]
+        # U avec 1 angle (u1f) ou 2 angles (u2f) : angles ajoutés en fin
+        if "1 angle" in type_lower or "u1f" in type_lower:
+            angle_dims = [(angle_size, angle_size)]
+        elif "2 angles" in type_lower or "u2f" in type_lower:
+            angle_dims = [(angle_size, angle_size), (angle_size, angle_size)]
+    else:
+        # Cas par défaut : une seule banquette
+        banquette_dims = [(tx or 0.0, profondeur)]
+
+    # Comptage dossiers et accoudoirs à partir des cases cochées
+    nb_dossiers = int(dossier_left) + int(dossier_bas) + int(dossier_right)
+    nb_accoudoirs = int(acc_left) + int(acc_right) + int(acc_bas)
+
+    # Comptage des coussins d'assise selon la taille sélectionnée
+    nb_coussins_65 = nb_coussins_80 = nb_coussins_90 = nb_coussins_valise = 0
+    # Si type_coussins est numérique, on calcule un nombre de coussins basique
+    try:
+        taille_coussins = int(type_coussins)
+        # Estimation du nombre total de coussins en fonction de la somme des longueurs
+        total_length = 0.0
+        for lng, _ in banquette_dims:
+            total_length += lng
+        for lng, _ in angle_dims:
+            total_length += lng
+        # Au minimum 2 coussins
+        nb_coussins = max(2, int(total_length / max(taille_coussins, 1)))
+        if taille_coussins == 65:
+            nb_coussins_65 = nb_coussins
+        elif taille_coussins == 80:
+            nb_coussins_80 = nb_coussins
+        elif taille_coussins == 90:
+            nb_coussins_90 = nb_coussins
+        else:
+            nb_coussins_valise = nb_coussins
+    except Exception:
+        # Tailles spéciales ('auto', 'valise', 'p', 'g') considérées comme coussins valise
+        # On ne peut pas déterminer un nombre précis ; par défaut 0
+        nb_coussins_valise = 0
+
+    # Traversins supplémentaires
+    nb_traversins = nb_traversins_supp
+    # Surmatelas : 1 si activé
+    nb_surmatelas_int = 1 if has_surmatelas else 0
+    # Nombre d'arrondis : un par banquette droite et par angle
+    nb_arrondis_int = len(banquette_dims) + len(angle_dims)
+
+    # Appel de la nouvelle fonction de calcul
+    prix_data = calculer_prix_from_data(
+        banquette_dims,
+        angle_dims,
+        nb_dossiers,
+        nb_accoudoirs,
+        nb_coussins_65,
+        nb_coussins_80,
+        nb_coussins_90,
+        nb_coussins_valise,
+        nb_traversins,
+        nb_coussins_deco,
+        nb_surmatelas_int,
+        nb_arrondis_int,
+        type_mousse,
+        epaisseur,
+    )
+
+    # Conversion du prix TTC en prix HT et TVA (20 %)
+    total_ttc = prix_data.get('total_ttc', 0.0)
+    prix_ht = total_ttc / 1.20 if total_ttc else 0.0
+    tva = total_ttc - prix_ht
+
+    # Nous ne calculons pas ici le coût de revient HT (pas disponible)
+    return {
+        'prix_ht': round(prix_ht, 2),
+        'tva': round(tva, 2),
+        'total_ttc': round(total_ttc, 2),
+        'cout_revient_ht': 0.0
+    }
