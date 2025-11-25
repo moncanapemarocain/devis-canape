@@ -621,3 +621,4 @@ def calculer_prix_total(
         'arrondis_total': round(arrondis_total, 2),
         'calculation_details': details,
     }
+
