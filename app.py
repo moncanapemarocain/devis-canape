@@ -476,8 +476,13 @@ with tab6:
 
                     # Prix arrondis
                     suppl_arrondis = 0
+                    suppl_arrondis_ttc = 0
                     if arrondis:
-                        suppl_arrondis = 20 * (nb_banquettes + nb_angles)
+                        # Le tarif arrondi est défini en TTC (20 € par banquette ou angle).
+                        # Pour le calcul HT, on divise par 1,20. On conserve également le TTC pour l'affichage.
+                        nb_arr_units = nb_banquettes + nb_angles
+                        suppl_arrondis = (20.0 / 1.20) * nb_arr_units
+                        suppl_arrondis_ttc = 20.0 * nb_arr_units
 
                     # Prix total HT
                     prix_ht_total = prix_ht_sans_arrondis + suppl_arrondis
@@ -588,8 +593,8 @@ with tab6:
                     for idx, part_price in enumerate(price_mousse_per_bench, start=1):
                         # Libellé de la dimension : on utilise l'indice de la banquette pour différencier
                         breakdown_rows.append((f"Mousse {type_mousse} dim.{idx}", 1, f"{part_price:.2f} €"))
-                    # Arrondis
-                    breakdown_rows.append(("Arrondis", nb_arrondis_units, f"{suppl_arrondis:.2f} €"))
+                    # Arrondis : affichage TTC (20€ par banquette/angle)
+                    breakdown_rows.append(("Arrondis", nb_arrondis_units, f"{suppl_arrondis_ttc:.2f} €"))
                     # Tissu (inclus)
                     breakdown_rows.append(("Tissu (inclus)", "", "0.00 €"))
                     # Remise
@@ -612,7 +617,8 @@ with tab6:
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
-                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
+                        arrondis=arrondis
                     )
                     cout_revient_ht_total = prix_details_calc.get('cout_revient_ht', 0.0)
                     marge_totale_ht = round(prix_ht_apres_remise - cout_revient_ht_total, 2)
