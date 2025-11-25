@@ -371,7 +371,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         ]))
         elements.append(detail_table)
     # Si aucune liste détaillée n'est fournie mais que des totaux existent, afficher ces derniers dans un tableau simple
-    elif any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total']):
+    elif any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total', 'arrondis_total']):
         elements.append(PageBreak())
         elements.append(Paragraph("Détail des calculs du prix", title_style))
         elements.append(Spacer(1, 0.3 * cm))
@@ -388,6 +388,8 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
             detail_rows.append(["Traversins", f"{prix_details['traversin_total']:.2f} €"])
         if 'surmatelas_total' in prix_details:
             detail_rows.append(["Surmatelas", f"{prix_details['surmatelas_total']:.2f} €"])
+        if 'arrondis_total' in prix_details:
+            detail_rows.append(["Arrondis", f"{prix_details['arrondis_total']:.2f} €"])
         detail_rows.append(["Total HT", f"{prix_details.get('prix_ht', 0.0):.2f} €"])
         detail_rows.append(["TVA (20 %)", f"{prix_details.get('tva', 0.0):.2f} €"])
         detail_rows.append(["Total TTC", f"{prix_details.get('total_ttc', 0.0):.2f} €"])
