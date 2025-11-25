@@ -373,6 +373,22 @@ with tab6:
     # Enregistrer la réduction dans la session pour qu'elle soit accessible lors du calcul du devis
     st.session_state['reduction_ttc'] = reduction_ttc
 
+    # Options pour afficher ou non les pages détaillées du devis et du coût de revient dans le PDF
+    show_detail_devis = st.checkbox(
+        "Afficher le détail du devis (page 2)",
+        value=False,
+        help="Lorsque cette option est cochée, la page 2 du PDF affichera le tableau complet des calculs du prix."
+    )
+    show_detail_cr = st.checkbox(
+        "Afficher le détail du coût de revient (page 3)",
+        value=False,
+        help="Lorsque cette option est cochée, la page 3 du PDF affichera le tableau complet des calculs du coût de revient."
+    )
+
+    # Stocker les choix dans la session pour les utiliser lors de la génération du PDF
+    st.session_state['show_detail_devis'] = show_detail_devis
+    st.session_state['show_detail_cr'] = show_detail_cr
+
     st.markdown("---")
     st.markdown("### Actions")
 
@@ -660,9 +676,6 @@ with tab6:
 
     with col2:
         # Suppression de l'obligation de renseigner un nom : le PDF peut être généré sans nom
-        # Choix d'afficher ou non les détails du devis et du coût de revient dans le PDF
-        show_detail_devis = st.checkbox("Afficher détail devis", value=False)
-        show_detail_cr = st.checkbox("Afficher détail coût de revient", value=False)
         if st.button("📄 Générer le Devis PDF", type="primary", use_container_width=True):
             with st.spinner("Création du PDF en cours..."):
                 try:
@@ -717,20 +730,18 @@ with tab6:
                         prix_details['reduction_ttc'] = reduction_ttc
                     else:
                         prix_details['reduction_ttc'] = 0.0
-                    # Recalculer la marge HT après remise
-                    # La marge = (prix de vente TTC après remise / 1.2) - coût de revient HT
-                    cr_total = prix_details.get('cout_revient_ht', 0.0)
-                    prix_details['marge_ht'] = round((prix_details['total_ttc'] / 1.20) - cr_total, 2)
 
                     # Récupération du tableau détaillé du devis depuis la session
                     breakdown_rows = st.session_state.get('breakdown_rows', None)
                     
                     pdf_buffer = generer_pdf_devis(
-                        config, prix_details, schema_image=img_buffer,
+                        config,
+                        prix_details,
+                        schema_image=img_buffer,
                         breakdown_rows=breakdown_rows,
                         reduction_ttc=prix_details.get('reduction_ttc', 0.0),
-                        show_detail_devis=show_detail_devis,
-                        show_detail_cr=show_detail_cr
+                        show_detail_devis=st.session_state.get('show_detail_devis', False),
+                        show_detail_cr=st.session_state.get('show_detail_cr', False)
                     )
                     
                     st.download_button(
