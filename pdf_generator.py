@@ -63,19 +63,21 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     )
     
     # Style de description de mousse
+    # Réduction de la taille de police (12 -> 10) pour laisser plus de place au schéma et aux informations
     description_mousse_style = ParagraphStyle(
-        'MousseDesc', parent=styles['Normal'], fontSize=12, leading=12, 
+        'MousseDesc', parent=styles['Normal'], fontSize=10, leading=11, 
         textColor=colors.black, alignment=TA_LEFT, fontName=BASE_FONT
     )
     
     # Styles pour le pied de page
+    # Les tailles de police sont légèrement réduites pour alléger le pied de page
     column_header_style = ParagraphStyle(
-        'ColumnHeaderStyle', parent=styles['Normal'], fontSize=12, alignment=TA_LEFT, 
-        fontName=BASE_FONT + '-Bold', spaceAfter=10
+        'ColumnHeaderStyle', parent=styles['Normal'], fontSize=11, alignment=TA_LEFT, 
+        fontName=BASE_FONT + '-Bold', spaceAfter=6
     )
 
     detail_style = ParagraphStyle(
-        'DetailStyle', parent=styles['Normal'], fontSize=12, leading=12, 
+        'DetailStyle', parent=styles['Normal'], fontSize=10, leading=11, 
         textColor=colors.black, alignment=TA_LEFT, fontName=BASE_FONT
     )
     
@@ -143,34 +145,31 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     # 1. TITRE et INFOS HAUTES
     elements.append(Paragraph("MON CANAPÉ MAROCAIN", title_style))
     
-    type_canape = config['type_canape']
-    dims = config['dimensions']
-    
+    # Préparation des informations générales pour la suite
+    type_canape = config.get('type_canape', '')
+    dims = config.get('dimensions', {})
+    # Détermination de la chaîne de dimensions selon le type de canapé
     if "U" in type_canape:
         dim_str = f"{dims.get('ty',0)} x {dims.get('tx',0)} x {dims.get('tz',0)}"
     elif "L" in type_canape:
         dim_str = f"{dims.get('ty',0)} x {dims.get('tx',0)}"
     else:
         dim_str = f"{dims.get('tx',0)} x {dims.get('profondeur',0)}"
-        
-    mousse_type = config['options'].get('type_mousse', 'HR35')
-    dossier_txt = 'Avec' if config['options'].get('dossier_bas') else 'Sans'
-    acc_txt = 'Oui' if (config['options'].get('acc_left') or config['options'].get('acc_right')) else 'Non'
 
-    lignes_info = [
-        f"<b>Dimensions:</b> {dim_str} cm",
-        f"<b>Confort:</b> {mousse_type}",
-        f"<b>Dossiers:</b> {dossier_txt}",
-        f"<b>Accoudoirs:</b> {acc_txt}"
-    ]
-    
-    client = config['client']
-    if client['nom']:
+    mousse_type = config.get('options', {}).get('type_mousse', 'HR35')
+    dossier_txt = 'Avec' if config.get('options', {}).get('dossier_bas') else 'Sans'
+    acc_txt = 'Oui' if (config.get('options', {}).get('acc_left') or config.get('options', {}).get('acc_right')) else 'Non'
+
+    # En-tête client uniquement : ne pas afficher dimensions/confort/dossiers/accoudoirs ici
+    client = config.get('client', {})
+    lignes_info = []
+    if client.get('nom'):
         lignes_info.append(f"<b>Nom:</b> {client['nom']}")
     if client.get('telephone'):
         lignes_info.append(f"<b>Téléphone:</b> {client['telephone']}")
-    
-    elements.append(Paragraph("<br/>".join(lignes_info), header_info_style))
+    # Afficher l'en-tête client seulement si au moins une information est renseignée
+    if lignes_info:
+        elements.append(Paragraph("<br/>".join(lignes_info), header_info_style))
     
     # Description mousse dynamique
     descriptions_mousse = {
@@ -243,49 +242,79 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         except Exception:
             elements.append(Paragraph("<i>(Schéma non disponible)</i>", header_info_style))
 
-    elements.append(Spacer(1, 0.5*cm))
+    # Ajouter un espace avant le récapitulatif du devis
+    elements.append(Spacer(1, 0.5 * cm))
 
-    # 4. PRIX ET REMISE
-    montant_ttc = f"{prix_details['total_ttc']:.2f} €"
-    elements.append(Paragraph(f"PRIX TOTAL TTC : {montant_ttc}", price_style))
-    # Affichage éventuel de la remise TTC sur la première page
-    if reduction_ttc and float(reduction_ttc) > 0:
-        elements.append(Paragraph(f"Remise TTC : -{float(reduction_ttc):.2f} €", header_info_style))
-    elements.append(Paragraph("<hr width='100%' color='black'/>", styles['Normal']))
+    # 4. DÉTAIL DU DEVIS (remplace l'ancien bloc prix/remise et la page supplémentaire)
+    # Calculs des montants nécessaires
+    montant_ttc_val = float(prix_details.get('total_ttc', 0.0))
+    montant_ttc = f"{montant_ttc_val:.2f} €"
+    # Réduction TTC
+    reduction_ttc_val = float(reduction_ttc or 0.0)
+    # Prix avant réduction = montant actuel + réduction
+    prix_avant_reduc_val = montant_ttc_val + reduction_ttc_val
+    prix_avant_reduc = f"{prix_avant_reduc_val:.2f} €"
 
-    
-    # Si un tableau de détails est fourni, ajouter une seconde page avec le tableau
+    # Déterminer le nombre de coussins d'assise à partir du tableau détaillé, si disponible
+    nb_coussins_assise = None
     if breakdown_rows:
-        elements.append(PageBreak())
-        # Titre de la page du tableau
-        elements.append(Paragraph("Détail du devis", title_style))
-        elements.append(Spacer(1, 0.3*cm))
-        # Construction du tableau pour la seconde page
-        table_data = [["Élément", "Quantité", "Prix"]]
-        for row in breakdown_rows:
-            table_data.append(list(row))
-        # Définir largeur des colonnes : diviser largeur disponible (doc.width)
-        col_widths = [8*cm, 4*cm, 5*cm]
-        detail_table = Table(table_data, colWidths=col_widths)
-        # Style du tableau : bordures fines, alignements et mise en évidence de la livraison et du total
-        style_commands = [
-            ('GRID', (0,0), (-1,-1), 0.25, colors.grey),
-            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-            ('ALIGN', (1,1), (-1,-1), 'CENTER'),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ]
-        # Recherche des indices pour les lignes spéciales
-        for idx, row in enumerate(breakdown_rows, start=1):
-            element = str(row[0])
-            if "Livraison" in element:
-                style_commands.append(('FONTNAME', (0, idx), (-1, idx), BASE_FONT + '-Bold'))
-            if element.startswith("Total TTC"):
-                style_commands.append(('BACKGROUND', (0, idx), (-1, idx), colors.whitesmoke))
-                style_commands.append(('FONTNAME', (0, idx), (-1, idx), BASE_FONT + '-Bold'))
-        detail_table.setStyle(TableStyle(style_commands))
-        elements.append(detail_table)
+        try:
+            for row in breakdown_rows:
+                if isinstance(row, (list, tuple)) and len(row) >= 2 and "Coussins assise" in str(row[0]):
+                    nb_coussins_assise = row[1]
+                    break
+        except Exception:
+            nb_coussins_assise = None
 
-    # GÉNÉRATION AVEC CALLBACK POUR LE FOOTER SUR TOUTES LES PAGES
+    # Détermination de la taille des coussins selon l'option choisie
+    type_coussins = config.get('options', {}).get('type_coussins', 'auto')
+    if type_coussins in ['65', '80', '90']:
+        taille_coussins = f"{type_coussins} cm"
+    elif type_coussins == 'auto':
+        taille_coussins = "65/80/90 cm"
+    elif type_coussins == 'valise':
+        taille_coussins = "format valise"
+    elif type_coussins == 'p':
+        taille_coussins = "petit modèle"
+    elif type_coussins == 'g':
+        taille_coussins = "grand modèle"
+    else:
+        taille_coussins = str(type_coussins)
+
+    # Colonne gauche : caractéristiques générales
+    col_left = []
+    col_left.append(Paragraph("Détail du devis :", column_header_style))
+    col_left.append(Paragraph(f"Dimensions : {dim_str} cm", detail_style))
+    col_left.append(Paragraph(f"Mousse : {mousse_type}", detail_style))
+    col_left.append(Paragraph(f"Accoudoirs : {acc_txt}", detail_style))
+    col_left.append(Paragraph(f"Dossiers : {dossier_txt}", detail_style))
+    col_left.append(Paragraph(f"Profondeur : {dims.get('profondeur', 0)} cm", detail_style))
+
+    # Colonne droite : coussins, livraison, réduction et prix
+    col_right = []
+    if nb_coussins_assise is not None:
+        col_right.append(Paragraph(f"Nombre de coussins : {nb_coussins_assise} de {taille_coussins}", detail_style))
+    else:
+        col_right.append(Paragraph("Nombre de coussins : -", detail_style))
+    # Livraison : gratuite
+    col_right.append(Paragraph("Livraison : <b>gratuite</b>", detail_style))
+    # Réduction TTC si fournie
+    col_right.append(Paragraph(f"Réduction : {reduction_ttc_val:.2f} €", detail_style))
+    # Prix d'angle (le prix final après réduction)
+    col_right.append(Paragraph(f"Prix canapé d'angle : <b>{montant_ttc}</b>", detail_style))
+    # Prix avant réduction
+    col_right.append(Paragraph(f"Prix avant réduction : {prix_avant_reduc}", detail_style))
+
+    # Construction du tableau à deux colonnes
+    devis_table = Table([[col_left, col_right]], colWidths=[9.5 * cm, 9.5 * cm])
+    devis_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    elements.append(devis_table)
+
+    # Construction du document PDF : une seule page, avec pied de page sur toutes les pages
     doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     buffer.seek(0)
     return buffer
