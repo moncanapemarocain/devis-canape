@@ -496,6 +496,166 @@ def calculer_prix_total(
     # They are implicit in the support price; therefore we do not add
     # anything here.  Should a future version require armrest pricing,
     # adjust accordingly.
+    # Build a detailed breakdown of every price component for debugging.
+    # Each entry in ``details`` is a dictionary containing:
+    # - ``category``: high‑level category name (foam, fabric, support, cushion, traversin, surmatelas)
+    # - ``item``: the specific item (e.g. "Mousse 1", "Banquette", "Coussins 65cm")
+    # - ``quantity``: number of units used
+    # - ``unit_price``: unit price of the item (for foam/fabric this is derived from formula)
+    # - ``formula``: human‑readable formula used for the calculation
+    # - ``total_price``: total price for that line (quantity * unit_price)
+    details: List[Dict[str, object]] = []
+    # Foam and fabric details for straight cushions
+    for idx, (length, width) in enumerate(dims, start=1):
+        # Foam price calculation per cushion
+        foam_price = (length * width * epaisseur_val * density * 16.0) / 1_000_000.0
+        foam_entry = {
+            'category': 'foam',
+            'item': f'Mousse droite {idx} ({length}×{width} cm)',
+            'quantity': 1,
+            'unit_price': round(foam_price, 2),
+            'formula': f'({length}*{width}*{epaisseur_val}*{density}*16)/1 000 000',
+            'total_price': round(foam_price, 2)
+        }
+        details.append(foam_entry)
+        # Fabric price per cushion
+        # Determine if width*thickness*2 exceeds 140 cm
+        if width * epaisseur_val * 2 > 140:
+            fabric_unit = (length / 100.0) * 105.0
+            fabric_formula = f'({length}/100)*105'
+        else:
+            fabric_unit = (length / 100.0) * 74.0
+            fabric_formula = f'({length}/100)*74'
+        fabric_entry = {
+            'category': 'fabric',
+            'item': f'Tissu droite {idx} ({length}×{width} cm)',
+            'quantity': 1,
+            'unit_price': round(fabric_unit, 2),
+            'formula': fabric_formula,
+            'total_price': round(fabric_unit, 2)
+        }
+        details.append(fabric_entry)
+    # Foam and fabric details for angle cushions
+    for idx, (length, width) in enumerate(dims_angle, start=1):
+        foam_price = (length * width * epaisseur_val * density * 16.0) / 1_000_000.0
+        foam_entry = {
+            'category': 'foam',
+            'item': f'Mousse angle {idx} ({length}×{width} cm)',
+            'quantity': 1,
+            'unit_price': round(foam_price, 2),
+            'formula': f'({length}*{width}*{epaisseur_val}*{density}*16)/1 000 000',
+            'total_price': round(foam_price, 2)
+        }
+        details.append(foam_entry)
+        if width * epaisseur_val * 2 > 140:
+            fabric_unit = (length / 100.0) * 105.0
+            fabric_formula = f'({length}/100)*105'
+        else:
+            fabric_unit = (length / 100.0) * 74.0
+            fabric_formula = f'({length}/100)*74'
+        fabric_entry = {
+            'category': 'fabric',
+            'item': f'Tissu angle {idx} ({length}×{width} cm)',
+            'quantity': 1,
+            'unit_price': round(fabric_unit, 2),
+            'formula': fabric_formula,
+            'total_price': round(fabric_unit, 2)
+        }
+        details.append(fabric_entry)
+    # Support details
+    if nb_banquettes > 0:
+        details.append({
+            'category': 'support',
+            'item': 'Banquette droite',
+            'quantity': nb_banquettes,
+            'unit_price': 225.0,
+            'formula': '225 €/banquette',
+            'total_price': round(nb_banquettes * 225.0, 2)
+        })
+    if nb_banquettes_angle > 0:
+        details.append({
+            'category': 'support',
+            'item': 'Banquette d’angle',
+            'quantity': nb_banquettes_angle,
+            'unit_price': 250.0,
+            'formula': '250 €/angle',
+            'total_price': round(nb_banquettes_angle * 250.0, 2)
+        })
+    if nb_dossiers > 0:
+        details.append({
+            'category': 'support',
+            'item': 'Dossier',
+            'quantity': nb_dossiers,
+            'unit_price': 250.0,
+            'formula': '250 €/dossier',
+            'total_price': round(nb_dossiers * 250.0, 2)
+        })
+    # Cushion details
+    if nb_coussins_65 > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin 65 cm',
+            'quantity': nb_coussins_65,
+            'unit_price': 35.0,
+            'formula': '35 €/coussin 65cm',
+            'total_price': round(nb_coussins_65 * 35.0, 2)
+        })
+    if nb_coussins_80 > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin 80 cm',
+            'quantity': nb_coussins_80,
+            'unit_price': 44.0,
+            'formula': '44 €/coussin 80cm',
+            'total_price': round(nb_coussins_80 * 44.0, 2)
+        })
+    if nb_coussins_90 > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin 90 cm',
+            'quantity': nb_coussins_90,
+            'unit_price': 48.0,
+            'formula': '48 €/coussin 90cm',
+            'total_price': round(nb_coussins_90 * 48.0, 2)
+        })
+    if nb_coussins_valise > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin valise',
+            'quantity': nb_coussins_valise,
+            'unit_price': 70.0,
+            'formula': '70 €/coussin valise',
+            'total_price': round(nb_coussins_valise * 70.0, 2)
+        })
+    if nb_coussins_deco > 0:
+        details.append({
+            'category': 'cushion',
+            'item': 'Coussin déco',
+            'quantity': nb_coussins_deco,
+            'unit_price': 15.0,
+            'formula': '15 €/coussin déco',
+            'total_price': round(nb_coussins_deco * 15.0, 2)
+        })
+    # Traversins
+    if nb_traversins > 0:
+        details.append({
+            'category': 'traversin',
+            'item': 'Traversin',
+            'quantity': nb_traversins,
+            'unit_price': 30.0,
+            'formula': '30 €/traversin',
+            'total_price': round(nb_traversins * 30.0, 2)
+        })
+    # Surmatelas
+    if nb_surmatelas > 0:
+        details.append({
+            'category': 'surmatelas',
+            'item': 'Surmatelas',
+            'quantity': nb_surmatelas,
+            'unit_price': 80.0,
+            'formula': '80 €/surmatelas',
+            'total_price': round(nb_surmatelas * 80.0, 2)
+        })
     # Sum all components to obtain the HT price
     prix_ht = foam_total + fabric_total + support_total + cushion_total + traversin_total + surmatelas_total
     # Compute a rudimentary cost of goods: assume 70 % of selling price
@@ -506,9 +666,19 @@ def calculer_prix_total(
     # Round HT prices to two decimals as well for consistency
     prix_ht = round(prix_ht, 2)
     cout_revient_ht = round(cout_revient_ht, 2)
+    # Return a rich dictionary including breakdown values and detailed calculations
     return {
         'prix_ht': prix_ht,
         'cout_revient_ht': cout_revient_ht,
         'tva': tva,
-        'total_ttc': total_ttc
+        'total_ttc': total_ttc,
+        # Breakdown details for PDF page 2 (aggregated values)
+        'foam_total': round(foam_total, 2),
+        'fabric_total': round(fabric_total, 2),
+        'support_total': round(support_total, 2),
+        'cushion_total': round(cushion_total, 2),
+        'traversin_total': round(traversin_total, 2),
+        'surmatelas_total': round(surmatelas_total, 2),
+        # Provide full calculation details for debugging
+        'calculation_details': details,
     }
