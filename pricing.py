@@ -426,7 +426,9 @@ def calculer_prix_total(
     )
     nb_traversins = int(data.get('nb_traversins') or 0) + int(nb_traversins_supp or 0)
     traversin_total = nb_traversins * 30.0
-    nb_surmatelas = 1 if has_surmatelas else 0
+    # Le nombre de surmatelas doit correspondre au nombre total de mousses (droites et d'angle)
+    # lorsqu'ils sont activés. On calcule donc une unité par coussin si has_surmatelas est vrai.
+    nb_surmatelas = (len(dims) + len(dims_angle)) if has_surmatelas else 0
     surmatelas_total = nb_surmatelas * 80.0
     nb_accoudoirs = int(data.get('nb_accoudoirs') or 0)
     accoudoir_total = nb_accoudoirs * 200.0
