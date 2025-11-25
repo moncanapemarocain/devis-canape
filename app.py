@@ -660,6 +660,9 @@ with tab6:
 
     with col2:
         # Suppression de l'obligation de renseigner un nom : le PDF peut être généré sans nom
+        # Choix d'afficher ou non les détails du devis et du coût de revient dans le PDF
+        show_detail_devis = st.checkbox("Afficher détail devis", value=False)
+        show_detail_cr = st.checkbox("Afficher détail coût de revient", value=False)
         if st.button("📄 Générer le Devis PDF", type="primary", use_container_width=True):
             with st.spinner("Création du PDF en cours..."):
                 try:
@@ -720,7 +723,10 @@ with tab6:
                     
                     pdf_buffer = generer_pdf_devis(
                         config, prix_details, schema_image=img_buffer,
-                        breakdown_rows=breakdown_rows, reduction_ttc=prix_details.get('reduction_ttc', 0.0)
+                        breakdown_rows=breakdown_rows,
+                        reduction_ttc=prix_details.get('reduction_ttc', 0.0),
+                        show_detail_devis=show_detail_devis,
+                        show_detail_cr=show_detail_cr
                     )
                     
                     st.download_button(
