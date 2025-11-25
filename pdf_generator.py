@@ -315,6 +315,9 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     type_coussins = config.get('options', {}).get('type_coussins', 'auto')
     if type_coussins in ['65', '80', '90']:
         taille_coussins = f"{type_coussins} cm"
+    elif type_coussins == '80-90':
+        # Nouvelle option 80-90 : chaque côté peut être optimisé en 80 ou 90 cm
+        taille_coussins = "80/90 cm"
     elif type_coussins == 'auto':
         taille_coussins = "65/80/90 cm"
     elif type_coussins == 'valise':
