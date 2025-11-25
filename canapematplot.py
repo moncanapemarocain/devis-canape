@@ -99,7 +99,13 @@ import math, unicodedata
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
-# --- Adaptateur "turtle" -> matplotlib ---------------------------------------
+# --- Adaptateur léger "turtle" -> matplotlib ---------------------------------
+# On crée un pseudo-module "turtle" compatible avec ce qu'utilise ce script :
+#   - turtle.Screen().setup(...), .title(...), .tracer(...)
+#   - turtle.Turtle(visible=False) avec : speed, pensize, pencolor, fillcolor,
+#     up/down, goto, setheading, left, forward, begin_fill, end_fill,
+#     circle, write, hideturtle
+#   - turtle.done() pour afficher la figure.
 
 _current_screen = None
 
@@ -123,8 +129,8 @@ class _MplScreen:
         self.fig.suptitle(txt)
 
     def tracer(self, flag):
-        # Dans turtle, tracer(False/True) sert aux animations.
-        # Avec matplotlib on dessine tout d'un coup, donc on ignore.
+        # Dans turtle, tracer(False/True) pilote l'animation progressive.
+        # Ici on dessine tout d'un coup, on ignore donc ce paramètre.
         pass
 
 
@@ -159,12 +165,14 @@ class _MplTurtle:
     def fillcolor(self, c):
         self.fill_color = c
 
-    # déplacement / stylo
+    # déplacements / stylo
     def up(self):
         self.is_down = False
+    penup = up
 
     def down(self):
         self.is_down = True
+    pendown = down
 
     def setheading(self, angle):
         self.heading = float(angle)
@@ -172,22 +180,24 @@ class _MplTurtle:
     def left(self, angle):
         self.heading += float(angle)
 
-    def goto(self, x, y):
-        x = float(x); y = float(y)
-        if self.is_down:
-            if self.is_filling:
-                # On ne trace pas directement, on accumule les points pour le patch de remplissage.
-                self._fill_path.append((x, y))
-            else:
-                self.ax.plot([self.x, x], [self.y, y],
-                             linewidth=self.pen_size, color=self.pen_color)
-        self.x, self.y = x, y
-
     def forward(self, dist):
         ang = math.radians(self.heading)
         nx = self.x + dist * math.cos(ang)
         ny = self.y + dist * math.sin(ang)
         self.goto(nx, ny)
+    fd = forward
+
+    def goto(self, x, y):
+        x = float(x); y = float(y)
+        if self.is_down:
+            if self.is_filling:
+                # On accumule les points, le remplissage se fera dans end_fill()
+                self._fill_path.append((x, y))
+            else:
+                # On trace immédiatement un segment
+                self.ax.plot([self.x, x], [self.y, y],
+                             linewidth=self.pen_size, color=self.pen_color)
+        self.x, self.y = x, y
 
     # remplissage
     def begin_fill(self):
@@ -204,10 +214,12 @@ class _MplTurtle:
         self.is_filling = False
         self._fill_path = []
 
+    # arcs et cercles (approximation par segments)
     def circle(self, radius, extent=360):
-        # Approximation de l'arc avec de petits segments
+        # On approxime l'arc avec de petits segments
         steps = max(4, int(abs(extent) / 5.0))
         step_angle = float(extent) / steps
+        # longueur approximative de chaque petit segment
         step_len = 2 * math.pi * abs(radius) * abs(step_angle) / 360.0
         for _ in range(steps):
             self.left(step_angle)
@@ -237,12 +249,15 @@ class _TurtleModule:
 
     @staticmethod
     def done():
+        # Ajuste les limites automatiquement autour de ce qui a été dessiné
         plt.axis("equal")
+        plt.tight_layout()
         plt.show()
 
 
-# On expose un objet "turtle" qui a la même API minimale que le module turtle
+# On expose un objet "turtle" qui remplace le module turtle standard
 turtle = _TurtleModule()
+
 
 # =========================
 # Réglages / constantes
@@ -910,41 +925,61 @@ def _lim_y(pts, key):
 
 def _parse_coussins_spec(coussins):
     """
-    Retourne un dict :
-      - mode: "auto" | "fixed" | "valise"
-      - fixed: int (si mode=fixed)
-      - range: (min,max)  (si mode=valise)
-      - same: bool        (si mode=valise, 'same' pour :s)
-    Règles:
-      auto          -> ancien auto (65,80,90)
-      entier        -> taille globale fixe (toutes branches)
-      valise        -> 60..100,  Δ global ≤ 5
-      p             -> 60..74,   Δ global ≤ 5
-      g             -> 76..100,  Δ global ≤ 5
-      s             -> same global, 60..100
-      p:s           -> same global, 60..74
-      g:s           -> same global, 76..100
+    Retourne un dict décrivant la spécification des coussins.
+
+    - mode : "auto", "80-90", "fixed" ou "valise"
+    - fixed : int si mode == "fixed" (taille globale unique)
+    - range : (min, max) si mode == "valise" (plage de tailles autorisées)
+    - same : bool si mode == "valise" (impose la même taille pour tous les côtés)
+
+    Règles :
+      "auto"    -> ancien auto (un seul standard global parmi 65, 80 ou 90)
+      "80-90"   -> auto par côté, mais uniquement avec 80 ou 90 cm
+      entier    -> taille globale fixe (toutes branches)
+      "valise"  -> 60..100,  Δ global ≤ 5
+      "p"       -> 60..74,   Δ global ≤ 5
+      "g"       -> 76..100,  Δ global ≤ 5
+      "s"       -> same global, 60..100
+      "p:s"     -> same global, 60..74
+      "g:s"     -> same global, 76..100
     """
+    # Cas "fixed" déjà typé entier
     if isinstance(coussins, int):
-        return {"mode":"fixed", "fixed": int(coussins)}
+        return {"mode": "fixed", "fixed": int(coussins)}
+
     s = str(coussins).strip().lower()
+
+    # Auto global (65/80/90, même taille partout)
     if s == "auto":
-        return {"mode":"auto"}
+        return {"mode": "auto"}
+
+    # NOUVEAU : mode 80-90
+    # Permet à chaque côté (bas / gauche / droite) de choisir
+    # indépendamment entre 80 ou 90, suivant la meilleure optimisation.
+    if s == "80-90":
+        return {"mode": "80-90"}
+
+    # Entier passé en texte
     if s.isdigit():
-        return {"mode":"fixed", "fixed": int(s)}
+        return {"mode": "fixed", "fixed": int(s)}
+
+    # Sinon : familles "valise"
     same = (":s" in s) or (s == "s")
     base = s.replace(":s", "")
     if base == "s":
         base = "valise"
+
     if base not in ("valise", "p", "g"):
         raise ValueError(f"Spécification coussins invalide: {coussins}")
+
     if base == "p":
         r = (60, 74)
     elif base == "g":
         r = (76, 100)
     else:
         r = (60, 100)
-    return {"mode":"valise", "range": r, "same": bool(same)}
+
+    return {"mode": "valise", "range": r, "same": bool(same)}
 
 def _parse_traversins_spec(traversins, allowed={"g","b","d"}):
     """
@@ -1166,6 +1201,53 @@ def _optimize_valise_L_like(pts, rng, same, x_end_key="Bx", y_end_key="By", trav
                         "shift_bas": (e is eval_B)}
     return best
 
+def _optimize_80_90_L_like(pts, x_end_key="Bx", y_end_key="By", traversins=None):
+    """
+    Variante spéciale pour le mode "80-90" sur les canapés en L / LF.
+
+    Contrairement à "auto" qui impose une seule taille globale,
+    chaque côté (bas / gauche) peut choisir 80 ou 90 cm
+    indépendamment, en minimisant le déchet et en maximisant la
+    couverture.
+    """
+    candidates = (80, 90)
+    best = None
+    for size_g in candidates:
+        for size_b in candidates:
+            # Deux orientations possibles : bas décalé ou non
+            eval_A = _eval_L_like_counts(
+                pts,
+                size_b,
+                size_g,
+                shift_bas=False,
+                x_end_key=x_end_key,
+                y_end_key=y_end_key,
+                traversins=traversins,
+            )
+            eval_B = _eval_L_like_counts(
+                pts,
+                size_b,
+                size_g,
+                shift_bas=True,
+                x_end_key=x_end_key,
+                y_end_key=y_end_key,
+                traversins=traversins,
+            )
+            # Meilleure orientation pour ce couple de tailles
+            e = min(
+                (eval_A, eval_B),
+                key=lambda E: (E["waste"], -E["cover"], -size_b, -size_g),
+            )
+            score = (e["waste"], -e["cover"], -size_b, -size_g)
+            if best is None or score < best["score"]:
+                best = {
+                    "score": score,
+                    "sizes": {"bas": size_b, "gauche": size_g},
+                    "eval": e,
+                    "shift_bas": (e is eval_B),
+                }
+    return best
+
 def _draw_L_like_with_sizes(t, tr, pts, sizes, shift_bas, x_end_key="Bx", y_end_key="By", traversins=None):
     F0x, F0y = pts["F0"]
     x_end, y_end = _apply_traversin_limits_L_like(pts, x_end_key, y_end_key, traversins)
@@ -1245,6 +1327,72 @@ def _optimize_valise_U2f(pts, rng, same, traversins=None):
             for sr in (False, True):
                 chk = _eval_U2f_counts(pts, best["sizes"]["bas"], best["sizes"]["gauche"], best["sizes"]["droite"], sl, sr, traversins=traversins)
                 if abs(chk["waste"] - chosen["waste"])<1e-9 and chk["cover"]==chosen["cover"]:
+                    best["shiftL"], best["shiftR"] = sl, sr
+                    return best
+    return best
+
+def _optimize_80_90_U2f(pts, traversins=None):
+    """
+    Variante spéciale pour le mode "80-90" sur les canapés en U2f.
+
+    Chaque côté (bas / gauche / droite) peut choisir 80 ou 90 cm
+    indépendamment, en cherchant le meilleur compromis déchet / couverture.
+    """
+    candidates = (80, 90)
+    best = None
+    for sg in candidates:
+        for sb in candidates:
+            for sd in candidates:
+                E = []
+                for sl in (False, True):
+                    for sr in (False, True):
+                        E.append(
+                            _eval_U2f_counts(
+                                pts,
+                                sb,
+                                sg,
+                                sd,
+                                sl,
+                                sr,
+                                traversins=traversins,
+                            )
+                        )
+                e = min(
+                    E,
+                    key=lambda x: (
+                        x["waste"],
+                        -x["cover"],
+                        -sb,
+                        -sg,
+                        -sd,
+                    ),
+                )
+                score = (e["waste"], -e["cover"], -sb, -sg, -sd)
+                if best is None or score < best["score"]:
+                    best = {
+                        "score": score,
+                        "sizes": {"bas": sb, "gauche": sg, "droite": sd},
+                        "eval": e,
+                    }
+
+    # Retrouver les shifts correspondant à la solution choisie
+    if best:
+        chosen = best["eval"]
+        for sl in (False, True):
+            for sr in (False, True):
+                chk = _eval_U2f_counts(
+                    pts,
+                    best["sizes"]["bas"],
+                    best["sizes"]["gauche"],
+                    best["sizes"]["droite"],
+                    sl,
+                    sr,
+                    traversins=traversins,
+                )
+                if (
+                    abs(chk["waste"] - chosen["waste"]) < 1e-9
+                    and chk["cover"] == chosen["cover"]
+                ):
                     best["shiftL"], best["shiftR"] = sl, sr
                     return best
     return best
@@ -1385,6 +1533,80 @@ def _optimize_valise_U1F(pts, rng, same, traversins=None):
                     best["shifts"]=(sl,sr); break
     return best
 
+def _optimize_80_90_U1F(pts, traversins=None):
+    """
+    Variante spéciale pour le mode "80-90" sur les canapés U1F.
+
+    Chaque côté (bas / gauche / droite) peut choisir 80 ou 90 cm
+    indépendamment.
+    """
+    candidates = (80, 90)
+    best = None
+    for sg in candidates:
+        for sb in candidates:
+            for sd in candidates:
+                E = []
+                for sl in (False, True):
+                    for sr in (False, True):
+                        E.append(
+                            _eval_U1F_counts(
+                                pts,
+                                sb,
+                                sg,
+                                sd,
+                                sl,
+                                sr,
+                                traversins=traversins,
+                            )
+                        )
+                e = min(
+                    E,
+                    key=lambda x: (
+                        x["waste"],
+                        -x["cover"],
+                        -sb,
+                        -sg,
+                        -sd,
+                    ),
+                )
+                score = (e["waste"], -e["cover"], -sb, -sg, -sd)
+                if best is None or score < best["score"]:
+                    best = {
+                        "score": score,
+                        "sizes": {"bas": sb, "gauche": sg, "droite": sd},
+                        "eval": e,
+                        "shifts": ("?", "?"),
+                    }
+
+    # Retrouver les shifts exacts
+    if best:
+        tgt = best["score"]
+        sb = best["sizes"]["bas"]
+        sg = best["sizes"]["gauche"]
+        sd = best["sizes"]["droite"]
+        for sl in (False, True):
+            for sr in (False, True):
+                chk = _eval_U1F_counts(
+                    pts,
+                    sb,
+                    sg,
+                    sd,
+                    sl,
+                    sr,
+                    traversins=traversins,
+                )
+                score = (
+                    chk["waste"],
+                    -chk["cover"],
+                    -sb,
+                    -sg,
+                    -sd,
+                )
+                if score == tgt:
+                    best["shifts"] = (sl, sr)
+                    return best
+    return best
+
 def _draw_U1F_with_sizes(t,tr,pts,sizes,shiftL,shiftR,traversins=None):
     F0x, F0y = pts["F0"]; F02x=pts["F02"][0]
     y_end_L = pts["By_cush"][1]; y_end_R=pts["By4_cush"][1]
@@ -1486,6 +1708,81 @@ def _optimize_valise_U(variant, pts, drawn, rng, same, traversins=None):
                 if score==tgt:
                     best["shiftL"], best["shiftR"] = sl, sr
                     break
+    return best
+
+def _optimize_80_90_U(variant, pts, drawn, traversins=None):
+    """
+    Variante spéciale pour le mode "80-90" sur les canapés en U (sans angle fromage).
+
+    Chaque côté (bas / gauche / droite) peut choisir 80 ou 90 cm
+    indépendamment.
+    """
+    candidates = (80, 90)
+    best = None
+    for sg in candidates:
+        for sb in candidates:
+            for sd in candidates:
+                E = []
+                for sl in (False, True):
+                    for sr in (False, True):
+                        E.append(
+                            _eval_U_counts(
+                                variant,
+                                pts,
+                                drawn,
+                                sb,
+                                sg,
+                                sd,
+                                sl,
+                                sr,
+                                traversins=traversins,
+                            )
+                        )
+                e = min(
+                    E,
+                    key=lambda x: (
+                        x["waste"],
+                        -x["cover"],
+                        -sb,
+                        -sg,
+                        -sd,
+                    ),
+                )
+                score = (e["waste"], -e["cover"], -sb, -sg, -sd)
+                if best is None or score < best["score"]:
+                    best = {
+                        "score": score,
+                        "sizes": {"bas": sb, "gauche": sg, "droite": sd},
+                        "eval": e,
+                        "shiftL": False,
+                        "shiftR": False,
+                    }
+
+    # Retrouver les shifts correspondant à la meilleure solution
+    if best:
+        chosen = best["eval"]
+        sb = best["sizes"]["bas"]
+        sg = best["sizes"]["gauche"]
+        sd = best["sizes"]["droite"]
+        for sl in (False, True):
+            for sr in (False, True):
+                chk = _eval_U_counts(
+                    variant,
+                    pts,
+                    drawn,
+                    sb,
+                    sg,
+                    sd,
+                    sl,
+                    sr,
+                    traversins=traversins,
+                )
+                if (
+                    abs(chk["waste"] - chosen["waste"]) < 1e-9
+                    and chk["cover"] == chosen["cover"]
+                ):
+                    best["shiftL"], best["shiftR"] = sl, sr
+                    return best
     return best
 
 def _draw_U_with_sizes(
@@ -1901,12 +2198,57 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
+    # Compteurs pour le nombre de coussins par taille pour le rapport console
+    nb_coussins_65 = 0
+    nb_coussins_80 = 0
+    nb_coussins_90 = 0
+    nb_coussins_valise = 0
     if spec["mode"] == "auto":
         cushions_count, chosen_size = draw_cousins_and_return_count(t,tr,pts,tx,ty,"auto",meridienne_side,meridienne_len,traversins=trv)
         total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
+        # Mise à jour des compteurs pour le mode automatique
+        if chosen_size == 65:
+            nb_coussins_65 = cushions_count
+        elif chosen_size == 80:
+            nb_coussins_80 = cushions_count
+        elif chosen_size == 90:
+            nb_coussins_90 = cushions_count
+        else:
+            nb_coussins_valise = cushions_count
+    elif spec["mode"] == "80-90":
+        best = _optimize_80_90_L_like(pts, x_end_key="Bx", y_end_key="By", traversins=trv)
+        if not best:
+            raise ValueError('Aucune configuration "80-90" valide pour LF.')
+        sizes = best["sizes"]
+        shift_bas = best["shift_bas"]
+        cushions_count, sb, sg = _draw_L_like_with_sizes(t, tr, pts, sizes, shift_bas, x_end_key="Bx", y_end_key="By", traversins=trv)
+        total_line = _format_valise_counts_console({"bas": sb, "gauche": sg}, best.get("counts", best.get("eval", {}).get("counts")), cushions_count,)
+        # Mise à jour des compteurs par taille en fonction des counts et tailles par côté
+        counts_dict = best.get("counts", best.get("eval", {}).get("counts"))
+        for side, size_val in sizes.items():
+            count = counts_dict.get(side, 0)
+            if not count:
+                continue
+            if size_val == 65:
+                nb_coussins_65 += count
+            elif size_val == 80:
+                nb_coussins_80 += count
+            elif size_val == 90:
+                nb_coussins_90 += count
+            else:
+                nb_coussins_valise += count
     elif spec["mode"] == "fixed":
         cushions_count, chosen_size = draw_cousins_and_return_count(t,tr,pts,tx,ty,int(spec["fixed"]),meridienne_side,meridienne_len,traversins=trv)
         total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
+        # Mise à jour des compteurs pour le mode fixe
+        if chosen_size == 65:
+            nb_coussins_65 = cushions_count
+        elif chosen_size == 80:
+            nb_coussins_80 = cushions_count
+        elif chosen_size == 90:
+            nb_coussins_90 = cushions_count
+        else:
+            nb_coussins_valise = cushions_count
     else:
         best = _optimize_valise_L_like(pts, spec["range"], spec["same"], x_end_key="Bx", y_end_key="By", traversins=trv)
         if not best:
@@ -1919,6 +2261,8 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
             best.get("counts", best.get("eval", {}).get("counts")),
             cushions_count,
         )
+        # En mode valise, tous les coussins sont considérés comme des coussins valises
+        nb_coussins_valise = cushions_count
 
     # Légende (couleurs)
     draw_legend(t, tr, tx, ty, items=legend_items, pos="top-right")
@@ -1937,6 +2281,34 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
     print(f"Angles : 1 × {A}×{A} cm")
     print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
+    # Détail issu des données pour le rapport console
+    nb_banquettes = len(polys["banquettes"])
+    nb_banquettes_angle = len(polys["angle"])
+    nb_accoudoirs = len(polys["accoudoirs"])
+    nb_dossiers_int = int(round(dossiers_count))
+    print()
+    print("À partir des données console :")
+    print(f"Dimensions : {tx}×{ty} cm — profondeur : {profondeur} cm (A={A})")
+    print(f"Nombre de banquettes : {nb_banquettes}")
+    print(f"Nombre de banquette d’angle : {nb_banquettes_angle}")
+    print(f"Nombre de dossiers : {nb_dossiers_int}")
+    print(f"Nombre d’accoudoir : {nb_accoudoirs}")
+    # Dimensions des mousses pour chaque banquette droite
+    for i, (L_b, P_b) in enumerate(banquette_sizes, start=1):
+        print(f"Dimension mousse {i} : {L_b}, {P_b}")
+    # Dimensions des mousses d’angle
+    for i, poly_angle in enumerate(polys["angle"], start=1):
+        try:
+            L_angle, P_angle = banquette_dims(poly_angle)
+            print(f"Dimension mousse angle {i} : {L_angle}, {P_angle}")
+        except Exception:
+            continue
+    # Répartition des coussins par catégorie
+    print(f"Nombre de coussins 65cm : {nb_coussins_65}")
+    print(f"Nombre de coussins 80cm : {nb_coussins_80}")
+    print(f"Nombre de coussins 90cm : {nb_coussins_90}")
+    print(f"Nombre de coussins valises total : {nb_coussins_valise}")
+    print(f"Nombre de traversin : {n_traversins}")
     turtle.done()
 
 # =====================================================================
@@ -2246,66 +2618,190 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
+    # Préparer des compteurs pour le rapport console. Ces compteurs serviront
+    # à ventiler le nombre de coussins selon les tailles 65 cm, 80 cm,
+    # 90 cm et valise (autres tailles).  Ils seront alimentés dans
+    # chaque branche ci‑dessous selon la taille finalement retenue.
+    nb_coussins_65 = 0
+    nb_coussins_80 = 0
+    nb_coussins_90 = 0
+    nb_coussins_valise = 0
     if spec["mode"] == "auto":
-        # ancien auto (65,80,90)
-        F0x, F0y = pts["F0"]; F02x = pts["F02"][0]
+        # ancien auto (65,80,90) : une seule taille pour tout le canapé
+        F0x, F0y = pts["F0"]
+        F02x = pts["F02"][0]
         y_end_L = pts.get("By_", pts["By"])[1]
         y_end_R = pts.get("By4_", pts["By4"])[1]
         if trv:
-            if "g" in trv: y_end_L -= TRAVERSIN_THK
-            if "d" in trv: y_end_R -= TRAVERSIN_THK
-        best, best_score = 65, (1e9, -1)
-        for s in (65,80,90):
+            if "g" in trv:
+                y_end_L -= TRAVERSIN_THK
+            if "d" in trv:
+                y_end_R -= TRAVERSIN_THK
+        best_size = 65
+        best_score = (1e9, -1)
+        for s in (65, 80, 90):
             usable_h = max(0, F02x - F0x)
             usable_v_L = max(0, y_end_L - (F0y + CUSHION_DEPTH))
             usable_v_R = max(0, y_end_R - (F0y + CUSHION_DEPTH))
             waste_h = usable_h % s if usable_h > 0 else 0
-            waste_v = max(usable_v_L % s if usable_v_L > 0 else 0,
-                          usable_v_R % s if usable_v_R > 0 else 0)
+            waste_v = max(
+                usable_v_L % s if usable_v_L > 0 else 0,
+                usable_v_R % s if usable_v_R > 0 else 0,
+            )
             score = (max(waste_h, waste_v), -s)
             if score < best_score:
-                best_score, best = score, s
-        size = best
-        cushions_count = _draw_cushions_U2f_optimized_wrapper(t, tr, pts, size, traversins=trv)
+                best_score, best_size = score, s
+        size = best_size
+        cushions_count = _draw_coussins_U2f_optimized_wrapper(
+            t, tr, pts, size, traversins=trv
+        )
         total_line = f"{coussins} → {cushions_count} × {size} cm"
-    elif spec["mode"] == "fixed":
-        size = int(spec["fixed"])
-        cushions_count = _draw_cushions_U2f_optimized_wrapper(t, tr, pts, size, traversins=trv)
-        total_line = f"{coussins} → {cushions_count} × {size} cm"
-    else:
-        best = _optimize_valise_U2f(pts, spec["range"], spec["same"], traversins=trv)
+        # Répartition des coussins par tailles pour le rapport.  En mode auto,
+        # une seule taille est choisie pour tous les coussins.  On met à jour
+        # le compteur correspondant.
+        if size == 65:
+            nb_coussins_65 = cushions_count
+        elif size == 80:
+            nb_coussins_80 = cushions_count
+        elif size == 90:
+            nb_coussins_90 = cushions_count
+        else:
+            nb_coussins_valise = cushions_count
+    elif spec["mode"] == "80-90":
+        best = _optimize_80_90_U2f(pts, traversins=trv)
         if not best:
-            raise ValueError("Aucune configuration valise valide pour U2f.")
-        sizes = best["sizes"]; shiftL = best["shiftL"]; shiftR = best["shiftR"]
-        cushions_count = _draw_U2f_with_sizes(t, tr, pts, sizes, shiftL, shiftR, traversins=trv)
+            raise ValueError('Aucune configuration "80-90" valide pour U2f.')
+        sizes = best["sizes"]
+        shiftL = best.get("shiftL", False)
+        shiftR = best.get("shiftR", False)
+        cushions_count = _draw_U2f_with_sizes(
+            t,
+            tr,
+            pts,
+            sizes,
+            shiftL,
+            shiftR,
+            traversins=trv,
+        )
         sb, sg, sd = sizes["bas"], sizes["gauche"], sizes["droite"]
         total_line = _format_valise_counts_console(
             {"bas": sb, "gauche": sg, "droite": sd},
             best.get("counts", best.get("eval", {}).get("counts")),
             cushions_count,
         )
+        # Répartition des coussins par tailles pour le rapport.  Dans la
+        # configuration 80‑90, on dispose de trois tailles de coussins (bas,
+        # gauche, droite) avec un nombre associé pour chaque côté.  On
+        # récupère le dictionnaire des comptes pour répartir par taille.
+        counts_dict = best.get("counts", best.get("eval", {}).get("counts"))
+        if counts_dict:
+            for side, size_val in [("bas", sb), ("gauche", sg), ("droite", sd)]:
+                count = counts_dict.get(side, 0)
+                if not count:
+                    continue
+                if size_val == 65:
+                    nb_coussins_65 += count
+                elif size_val == 80:
+                    nb_coussins_80 += count
+                elif size_val == 90:
+                    nb_coussins_90 += count
+                else:
+                    nb_coussins_valise += count
+    elif spec["mode"] == "fixed":
+        size = int(spec["fixed"])
+        cushions_count = _draw_coussins_U2f_optimized_wrapper(
+            t, tr, pts, size, traversins=trv
+        )
+        total_line = f"{coussins} → {cushions_count} × {size} cm"
+        # Répartition des coussins par tailles pour le rapport.  En mode
+        # fixe, tous les coussins partagent une taille définie par
+        # l’utilisateur.
+        if size == 65:
+            nb_coussins_65 = cushions_count
+        elif size == 80:
+            nb_coussins_80 = cushions_count
+        elif size == 90:
+            nb_coussins_90 = cushions_count
+        else:
+            nb_coussins_valise = cushions_count
+    else:
+        best = _optimize_valise_U2f(
+            pts, spec["range"], spec["same"], traversins=trv
+        )
+        if not best:
+            raise ValueError("Aucune configuration valise valide pour U2f.")
+        sizes = best["sizes"]
+        shiftL = best["shiftL"]
+        shiftR = best["shiftR"]
+        cushions_count = _draw_U2f_with_sizes(
+            t,
+            tr,
+            pts,
+            sizes,
+            shiftL,
+            shiftR,
+            traversins=trv,
+        )
+        sb, sg, sd = sizes["bas"], sizes["gauche"], sizes["droite"]
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
+        # En mode valise, toutes les tailles sont considérées comme des
+        # coussins valise (autres tailles).  On attribue donc tout le
+        # compte à ce compteur.
+        nb_coussins_valise = cushions_count
 
     # Titre demandé + légende (U → légende en haut-centre)
     draw_title_center(t, tr, tx, ty_canvas, "Canapé en U avec deux angles")
     draw_legend(t, tr, tx, ty_canvas, items=legend_items, pos="top-center")
 
     screen.tracer(True); t.hideturtle()
-    add_split = sum(int(v) for v in polys.get("split_flags", {}).values())
+    # Calcul du bonus de scission des dossiers
+    dossier_bonus = int(polys["split_flags"].get("left", False) and dossier_left) + \
+                    int(polys["split_flags"].get("bottom", False) and dossier_bas) + \
+                    int(polys["split_flags"].get("right", False) and dossier_right)
+    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    dossiers_count = _compute_dossiers_count(polys)
+    nb_dossiers_int = int(round(dossiers_count))
+    nb_banquettes = len(polys["banquettes"])
+    nb_banquettes_angle = len(polys["angles"])
+    nb_accoudoirs = len(polys["accoudoirs"])
+
+    # Rapport de base (format historique)
     print("=== Rapport canapé U2f ===")
     print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur} (A={A})")
     print(f"Méridienne : {meridienne_side or '-'} ({meridienne_len} cm)")
-    print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
-    dossier_bonus = int(polys["split_flags"].get("left", False) and dossier_left) + \
-                   int(polys["split_flags"].get("bottom", False) and dossier_bas) + \
-                   int(polys["split_flags"].get("right", False) and dossier_right)
-    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
-    dossiers_count = _compute_dossiers_count(polys)
-    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
-    print(f"Dossiers : {dossiers_str} (+{dossier_bonus} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
-    print(f"Banquettes d'angle : 2")
-    print(f"Angles : 2 × {A}×{A} cm")
+    print(f"Banquettes : {nb_banquettes} → {banquette_sizes}")
+    print(f"Dossiers : {nb_dossiers_int} (+{dossier_bonus} via scission) | Accoudoirs : {nb_accoudoirs}")
+    print(f"Banquettes d'angle : {nb_banquettes_angle}")
+    print(f"Angles : {nb_banquettes_angle} × {A}×{A} cm")
     print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
+
+    # ======= NOUVEAU BLOC "À partir des données console" =======
+    print()
+    print("À partir des données console :")
+    print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur} (A={A})")
+    print(f"Méridienne : {meridienne_side or '-'} ({meridienne_len} cm)")
+    print(f"Nombre de banquettes : {nb_banquettes}")
+    print(f"Nombre de banquette d’angle : {nb_banquettes_angle}")
+    print(f"Nombre de dossiers : {nb_dossiers_int}")
+    print(f"Nombre d’accoudoir : {nb_accoudoirs}")
+    # Dimensions des mousses droites
+    for i, (L, P) in enumerate(banquette_sizes, start=1):
+        print(f"Dimension mousse {i} : {L}, {P}")
+    # Dimensions des mousses d’angle
+    for i, poly in enumerate(polys["angles"], start=1):
+        L_angle, P_angle = banquette_dims(poly)
+        print(f"Dimension mousse angle {i} : {L_angle}, {P_angle}")
+    # Répartition des coussins par catégories
+    print(f"Nombre de coussins 65cm : {nb_coussins_65}")
+    print(f"Nombre de coussins 80cm : {nb_coussins_80}")
+    print(f"Nombre de coussins 90cm : {nb_coussins_90}")
+    print(f"Nombre de coussins valises total : {nb_coussins_valise}")
+    print(f"Nombre de traversin : {n_traversins}")
     turtle.done()
 
 # =====================================================================
@@ -3095,19 +3591,74 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
+    # Préparer des compteurs pour le rapport console afin de ventiler le
+    # nombre de coussins selon les tailles 65 cm, 80 cm, 90 cm et valise.
+    nb_coussins_65 = 0
+    nb_coussins_80 = 0
+    nb_coussins_90 = 0
+    nb_coussins_valise = 0
     if spec["mode"] == "auto":
         size = _choose_cushion_size_auto_U1F(pts, traversins=trv)
         nb_coussins = _draw_coussins_U1F(t, tr, pts, size, traversins=trv)
         total_line = f"{coussins} → {nb_coussins} × {size} cm"
+        # Répartition des coussins selon la taille choisie en mode auto
+        if size == 65:
+            nb_coussins_65 = nb_coussins
+        elif size == 80:
+            nb_coussins_80 = nb_coussins
+        elif size == 90:
+            nb_coussins_90 = nb_coussins
+        else:
+            nb_coussins_valise = nb_coussins
+    elif spec["mode"] == "80-90":
+        best = _optimize_80_90_U1F(pts, traversins=trv)
+        if not best:
+            raise ValueError('Aucune configuration "80-90" valide pour U1F.')
+        sizes = best["sizes"]
+        shiftL, shiftR = best["shifts"]
+        nb_coussins = _draw_U1F_with_sizes(
+            t, tr, pts, sizes, shiftL, shiftR, traversins=trv
+        )
+        sb, sg, sd = sizes["bas"], sizes["gauche"], sizes["droite"]
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            nb_coussins,
+        )
+        # Répartition des coussins selon les tailles pour chaque côté en mode 80‑90
+        counts_dict = best.get("counts", best.get("eval", {}).get("counts"))
+        if counts_dict:
+            for side, size_val in [("bas", sb), ("gauche", sg), ("droite", sd)]:
+                c = counts_dict.get(side, 0)
+                if not c:
+                    continue
+                if size_val == 65:
+                    nb_coussins_65 += c
+                elif size_val == 80:
+                    nb_coussins_80 += c
+                elif size_val == 90:
+                    nb_coussins_90 += c
+                else:
+                    nb_coussins_valise += c
     elif spec["mode"] == "fixed":
         size = int(spec["fixed"])
         nb_coussins = _draw_coussins_U1F(t, tr, pts, size, traversins=trv)
         total_line = f"{coussins} → {nb_coussins} × {size} cm"
+        # Répartition des coussins selon la taille fixe
+        if size == 65:
+            nb_coussins_65 = nb_coussins
+        elif size == 80:
+            nb_coussins_80 = nb_coussins
+        elif size == 90:
+            nb_coussins_90 = nb_coussins
+        else:
+            nb_coussins_valise = nb_coussins
     else:
         best = _optimize_valise_U1F(pts, spec["range"], spec["same"], traversins=trv)
         if not best:
             raise ValueError("Aucune configuration valise valide pour U1F.")
-        sizes = best["sizes"]; shiftL, shiftR = best["shifts"]
+        sizes = best["sizes"]
+        shiftL, shiftR = best["shifts"]
         nb_coussins = _draw_U1F_with_sizes(t, tr, pts, sizes, shiftL, shiftR, traversins=trv)
         sb, sg, sd = sizes["bas"], sizes["gauche"], sizes["droite"]
         total_line = _format_valise_counts_console(
@@ -3115,6 +3666,8 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
             best.get("counts", best.get("eval", {}).get("counts")),
             nb_coussins,
         )
+        # En mode valise, tous les coussins sont considérés comme des coussins valises
+        nb_coussins_valise = nb_coussins
 
     # Titre + légende (U → haut-centre)
     draw_title_center(t, tr, tx, ty_canvas, "Canapé en U avec un angle")
@@ -3122,18 +3675,59 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
 
     screen.tracer(True); t.hideturtle()
 
-    add_split = int(polys.get("split_flags",{}).get("any",False))
+    # Calculs pour le rapport détaillé
+    dossier_bonus = int(polys.get("split_flags",{}).get("any", False))
+    dossiers_count = _compute_dossiers_count(polys)
+    nb_dossiers_int = int(round(dossiers_count))
+    nb_banquettes = len(polys["banquettes"])
+    nb_banquettes_angle = len(polys["angle"])
+    nb_accoudoirs = len(polys["accoudoirs"])
+    # Dimensions des dossiers
+    dossier_dims = []
+    for dp in polys["dossiers"]:
+        try:
+            L_d, P_d = banquette_dims(dp)
+        except Exception:
+            # Si le calcul échoue, sauter le dossier
+            continue
+        dossier_dims.append((L_d, P_d))
+
+    # Rapport classique
     print(f"=== Rapport U1F {variant} ===")
     print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — profondeur={profondeur} (A={A})")
-    print(f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}")
-    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
-    dossiers_count = _compute_dossiers_count(polys)
-    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
-    print(f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}")
-    print(f"Banquettes d’angle : 1")
-    print(f"Angles : 1 × {A}×{A} cm")
+    print(f"Banquettes : {nb_banquettes} → {banquette_sizes}")
+    print(f"Dossiers : {nb_dossiers_int} (+{dossier_bonus} via scission) | Accoudoirs : {nb_accoudoirs}")
+    print(f"Banquettes d’angle : {nb_banquettes_angle}")
+    print(f"Angles : {nb_banquettes_angle} × {A}×{A} cm")
     print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
+
+    # Rapport détaillé
+    print()
+    print("À partir des données console :")
+    print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — profondeur={profondeur} (A={A})")
+    print(f"Nombre de banquettes : {nb_banquettes}")
+    print(f"Nombre de banquette d’angle : {nb_banquettes_angle}")
+    print(f"Nombre de dossiers : {nb_dossiers_int}")
+    print(f"Nombre d’accoudoir : {nb_accoudoirs}")
+    # Dimensions des mousses (banquettes droites)
+    for i, (L_b, P_b) in enumerate(banquette_sizes, start=1):
+        print(f"Dimension mousse {i} : {L_b}, {P_b}")
+    # Dimensions des mousses d’angle
+    for i, ang_poly in enumerate(polys["angle"], start=1):
+        try:
+            L_a, P_a = banquette_dims(ang_poly)
+            print(f"Dimension mousse angle {i} : {L_a}, {P_a}")
+        except Exception:
+            continue
+    # Les dimensions des dossiers ne sont plus affichées individuellement pour U1F
+    # Elles peuvent être calculées via `banquette_dims` mais ne sont pas listées ici.
+    # Répartition des coussins
+    print(f"Nombre de coussins 65cm : {nb_coussins_65}")
+    print(f"Nombre de coussins 80cm : {nb_coussins_80}")
+    print(f"Nombre de coussins 90cm : {nb_coussins_90}")
+    print(f"Nombre de coussins valises total : {nb_coussins_valise}")
+    print(f"Nombre de traversin : {n_traversins}")
     turtle.done()
 
 def _dry_polys_for_U1F_variant(tx, ty_left, tz_right, profondeur,
@@ -3666,24 +4260,109 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
+    # Compteurs de coussins pour le rapport détaillé
+    nb_coussins_65 = 0
+    nb_coussins_80 = 0
+    nb_coussins_90 = 0
+    nb_coussins_valise = 0
     if spec["mode"] == "auto":
-        cushions_count, chosen_size = draw_coussins_L_optimized(t,tr,pts,"auto", traversins=trv)
+        cushions_count, chosen_size = draw_coussins_L_optimized(
+            t,
+            tr,
+            pts,
+            "auto",
+            traversins=trv,
+        )
         total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
-    elif spec["mode"] == "fixed":
-        cushions_count, chosen_size = draw_coussins_L_optimized(t,tr,pts,int(spec["fixed"]), traversins=trv)
-        total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
-    else:
-        best = _optimize_valise_L_like(pts, spec["range"], spec["same"], traversins=trv)
+        # Mise à jour des compteurs pour le mode automatique
+        if chosen_size == 65:
+            nb_coussins_65 = cushions_count
+        elif chosen_size == 80:
+            nb_coussins_80 = cushions_count
+        elif chosen_size == 90:
+            nb_coussins_90 = cushions_count
+        else:
+            nb_coussins_valise = cushions_count
+    elif spec["mode"] == "80-90":
+        # Mode 80-90 : optimise séparément bas et gauche avec tailles 80 ou 90
+        best = _optimize_80_90_L_like(pts, traversins=trv)
         if not best:
-            raise ValueError("Aucune configuration valise valide pour L.")
-        sizes = best["sizes"]; shift = best["shift_bas"]
-        n, sb, sg = _draw_L_like_with_sizes(t, tr, pts, sizes, shift, traversins=trv)
-        cushions_count = n
+            raise ValueError('Aucune configuration "80-90" valide pour L.')
+        sizes = best["sizes"]
+        shift_bas = best["shift_bas"]
+        cushions_count, sb, sg = _draw_L_like_with_sizes(
+            t,
+            tr,
+            pts,
+            sizes,
+            shift_bas,
+            traversins=trv,
+        )
         total_line = _format_valise_counts_console(
             {"bas": sb, "gauche": sg},
             best.get("counts", best.get("eval", {}).get("counts")),
             cushions_count,
         )
+        # Mise à jour des compteurs par taille via les nombres de coussins par côté
+        counts_dict = best.get("counts", best.get("eval", {}).get("counts"))
+        for side, size_val in sizes.items():
+            count = counts_dict.get(side, 0)
+            if not count:
+                continue
+            if size_val == 65:
+                nb_coussins_65 += count
+            elif size_val == 80:
+                nb_coussins_80 += count
+            elif size_val == 90:
+                nb_coussins_90 += count
+            else:
+                nb_coussins_valise += count
+    elif spec["mode"] == "fixed":
+        # Taille fixe : une seule dimension imposée
+        cushions_count, chosen_size = draw_coussins_L_optimized(
+            t,
+            tr,
+            pts,
+            int(spec["fixed"]),
+            traversins=trv,
+        )
+        total_line = f"{coussins} → {cushions_count} × {chosen_size} cm"
+        # Mise à jour des compteurs pour le mode fixe
+        if chosen_size == 65:
+            nb_coussins_65 = cushions_count
+        elif chosen_size == 80:
+            nb_coussins_80 = cushions_count
+        elif chosen_size == 90:
+            nb_coussins_90 = cushions_count
+        else:
+            nb_coussins_valise = cushions_count
+    else:
+        # Mode valise : plage de tailles avec contrainte de delta ≤ 5 cm
+        best = _optimize_valise_L_like(
+            pts,
+            spec["range"],
+            spec["same"],
+            traversins=trv,
+        )
+        if not best:
+            raise ValueError("Aucune configuration valise valide pour L.")
+        sizes = best["sizes"]
+        shift_bas = best["shift_bas"]
+        cushions_count, sb, sg = _draw_L_like_with_sizes(
+            t,
+            tr,
+            pts,
+            sizes,
+            shift_bas,
+            traversins=trv,
+        )
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
+        # En mode valise, toutes les tailles sont considérées comme valises
+        nb_coussins_valise = cushions_count
 
     # Légende
     draw_legend(t, tr, tx, ty, items=legend_items, pos="top-right")
@@ -3703,6 +4382,25 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
     print(f"Banquettes d’angle : 0")
     print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
+    # Bloc détaillé issu des données de la console
+    nb_banquettes = len(polys["banquettes"])
+    nb_banquettes_angle = 0  # Un L sans angle n'a pas de banquettes d'angle
+    nb_accoudoirs = len(polys["accoudoirs"])
+    nb_dossiers_int = int(round(dossiers_count))
+    print()
+    print("À partir des données console :")
+    print(f"Dimensions : {tx}×{ty} — prof={profondeur} — méridienne {meridienne_side or '-'}={meridienne_len}")
+    print(f"Nombre de banquettes : {nb_banquettes}")
+    print(f"Nombre de banquette d’angle : {nb_banquettes_angle}")
+    print(f"Nombre de dossiers : {nb_dossiers_int}")
+    print(f"Nombre d’accoudoir : {nb_accoudoirs}")
+    for i, (L_b, P_b) in enumerate(banquette_sizes, start=1):
+        print(f"Dimension mousse {i} : {L_b}, {P_b}")
+    print(f"Nombre de coussins 65cm : {nb_coussins_65}")
+    print(f"Nombre de coussins 80cm : {nb_coussins_80}")
+    print(f"Nombre de coussins 90cm : {nb_coussins_90}")
+    print(f"Nombre de coussins valises total : {nb_coussins_valise}")
+    print(f"Nombre de traversin : {n_traversins}")
     turtle.done()
 
 def render_LNF_v1(tx, ty, profondeur=DEPTH_STD,
@@ -5103,33 +5801,49 @@ def _render_common_U(
 
     # Draw cushions
     spec = _parse_coussins_spec(coussins)
+    # Préparer des compteurs pour le rapport détaillé : nombre de coussins selon
+    # les tailles 65 cm, 80 cm, 90 cm et valise.
+    nb_coussins_65 = 0
+    nb_coussins_80 = 0
+    nb_coussins_90 = 0
+    nb_coussins_valise = 0
     if spec["mode"] == "auto":
+        # auto : une seule taille choisie parmi (65,80,90) pour minimiser le déchet
         size = _choose_cushion_size_auto_U(
-            variant, pts, drawn, traversins=trv
-        )
-        cushions_count = _draw_cushions_variant_U(
-            t, tr, variant, pts, size, drawn, traversins=trv
-        )
-        total_line = f"{coussins} → {cushions_count} × {size} cm"
-    elif spec["mode"] == "fixed":
-        size = int(spec["fixed"])
-        cushions_count = _draw_cushions_variant_U(
-            t, tr, variant, pts, size, drawn, traversins=trv
-        )
-        total_line = f"{coussins} → {cushions_count} × {size} cm"
-    else:
-        best = _optimize_valise_U(
             variant,
             pts,
             drawn,
-            spec["range"],
-            spec["same"],
+            traversins=trv,
+        )
+        cushions_count = _draw_cushions_variant_U(
+            t,
+            tr,
+            variant,
+            pts,
+            size,
+            drawn,
+            traversins=trv,
+        )
+        total_line = f"{coussins} → {cushions_count} × {size} cm"
+        # Répartition des coussins par tailles pour le rapport détaillé
+        if size == 65:
+            nb_coussins_65 = cushions_count
+        elif size == 80:
+            nb_coussins_80 = cushions_count
+        elif size == 90:
+            nb_coussins_90 = cushions_count
+        else:
+            nb_coussins_valise = cushions_count
+    elif spec["mode"] == "80-90":
+        # mode 80-90 : chaque côté (bas/gauche/droite) peut choisir 80 ou 90 cm indépendamment
+        best = _optimize_80_90_U(
+            variant,
+            pts,
+            drawn,
             traversins=trv,
         )
         if not best:
-            raise ValueError(
-                "Aucune configuration valise valide pour U."
-            )
+            raise ValueError('Aucune configuration "80-90" valide pour U.')
         sizes = best["sizes"]
         shiftL = best.get("shiftL", False)
         shiftR = best.get("shiftR", False)
@@ -5144,16 +5858,82 @@ def _render_common_U(
             shiftR,
             traversins=trv,
         )
-        sb, sg, sd = (
-            sizes["bas"],
-            sizes["gauche"],
-            sizes["droite"],
-        )
+        sb = sizes["bas"]; sg = sizes["gauche"]; sd = sizes["droite"]
         total_line = _format_valise_counts_console(
             {"bas": sb, "gauche": sg, "droite": sd},
             best.get("counts", best.get("eval", {}).get("counts")),
             cushions_count,
         )
+        # Répartition des coussins par tailles selon le nombre de coussins posés par côté
+        counts_dict = best.get("counts", best.get("eval", {}).get("counts"))
+        if counts_dict:
+            for side, size_val in [("bas", sb), ("gauche", sg), ("droite", sd)]:
+                c = counts_dict.get(side, 0)
+                if not c:
+                    continue
+                if size_val == 65:
+                    nb_coussins_65 += c
+                elif size_val == 80:
+                    nb_coussins_80 += c
+                elif size_val == 90:
+                    nb_coussins_90 += c
+                else:
+                    nb_coussins_valise += c
+    elif spec["mode"] == "fixed":
+        size = int(spec["fixed"])
+        cushions_count = _draw_cushions_variant_U(
+            t,
+            tr,
+            variant,
+            pts,
+            size,
+            drawn,
+            traversins=trv,
+        )
+        total_line = f"{coussins} → {cushions_count} × {size} cm"
+        # Répartition des coussins par tailles pour la taille fixe
+        if size == 65:
+            nb_coussins_65 = cushions_count
+        elif size == 80:
+            nb_coussins_80 = cushions_count
+        elif size == 90:
+            nb_coussins_90 = cushions_count
+        else:
+            nb_coussins_valise = cushions_count
+    else:
+        # valise : plage de tailles avec contrainte de delta ≤ 5 cm
+        best = _optimize_valise_U(
+            variant,
+            pts,
+            drawn,
+            spec["range"],
+            spec["same"],
+            traversins=trv,
+        )
+        if not best:
+            raise ValueError("Aucune configuration valise valide pour U.")
+        sizes = best["sizes"]
+        shiftL = best.get("shiftL", False)
+        shiftR = best.get("shiftR", False)
+        cushions_count = _draw_U_with_sizes(
+            variant,
+            t,
+            tr,
+            pts,
+            sizes,
+            drawn,
+            shiftL,
+            shiftR,
+            traversins=trv,
+        )
+        sb = sizes["bas"]; sg = sizes["gauche"]; sd = sizes["droite"]
+        total_line = _format_valise_counts_console(
+            {"bas": sb, "gauche": sg, "droite": sd},
+            best.get("counts", best.get("eval", {}).get("counts")),
+            cushions_count,
+        )
+        # En mode valise U, tous les coussins sont considérés comme valises
+        nb_coussins_valise = cushions_count
 
     # Title and legend
     draw_title_center(
@@ -5167,37 +5947,60 @@ def _render_common_U(
     screen.tracer(True)
     t.hideturtle()
 
-    # Compute split bonus for backs
+    # Calcul du bonus de scission pour les dossiers
     split_flags = polys.get("split_flags", {})
-    add_split = int(
-        split_flags.get("left", False)
-        and (drawn.get("D1") or drawn.get("D2"))
+    dossier_bonus = int(
+        split_flags.get("left", False) and (drawn.get("D1") or drawn.get("D2"))
     ) + int(
         split_flags.get("bottom", False) and drawn.get("D3")
     ) + int(
         split_flags.get("right", False) and drawn.get("D5")
     )
-
-    # Print report
-    print(f"=== Rapport canapé U (variant {variant}) ===")
-    print(
-        f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur}"
-    )
-    print(
-        f"Méridienne : {meridienne_side or '-'} ({meridienne_len} cm)"
-    )
-    print(
-        f"Banquettes : {len(polys['banquettes'])} → {banquette_sizes}"
-    )
-    # Comptage pondéré des dossiers : <=110cm → 0.5, >110cm → 1
+    # Comptage pondéré des dossiers
     dossiers_count = _compute_dossiers_count(polys)
-    dossiers_str = f"{int(dossiers_count)}" if abs(dossiers_count - int(dossiers_count)) < 1e-9 else f"{dossiers_count}"
-    print(
-        f"Dossiers : {dossiers_str} (+{add_split} via scission) | Accoudoirs : {len(polys['accoudoirs'])}"
-    )
-    print("Banquettes d’angle : 0")
+    nb_dossiers_int = int(round(dossiers_count))
+    nb_banquettes = len(polys["banquettes"])
+    nb_banquettes_angle = 0  # Un U sans angle n'a pas de banquettes d'angle
+    nb_accoudoirs = len(polys["accoudoirs"])
+    # Dimensions des dossiers
+    dossier_dims = []
+    for dp in polys["dossiers"]:
+        try:
+            L_d, P_d = banquette_dims(dp)
+            dossier_dims.append((L_d, P_d))
+        except Exception:
+            continue
+
+    # Rapport classique
+    print(f"=== Rapport canapé U (variant {variant}) ===")
+    print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur}")
+    print(f"Méridienne : {meridienne_side or '-'} ({meridienne_len} cm)")
+    print(f"Banquettes : {nb_banquettes} → {banquette_sizes}")
+    print(f"Dossiers : {nb_dossiers_int} (+{dossier_bonus} via scission) | Accoudoirs : {nb_accoudoirs}")
+    print(f"Banquettes d’angle : {nb_banquettes_angle}")
     print(f"Traversins : {n_traversins} × 70x30")
     print(f"Coussins : {total_line}")
+
+    # Rapport détaillé
+    print()
+    print("À partir des données console :")
+    print(f"Dimensions : tx={tx} / ty(left)={ty_left} / tz(right)={tz_right} — prof={profondeur}")
+    print(f"Méridienne : {meridienne_side or '-'} ({meridienne_len} cm)")
+    print(f"Nombre de banquettes : {nb_banquettes}")
+    print(f"Nombre de banquette d’angle : {nb_banquettes_angle}")
+    print(f"Nombre de dossiers : {nb_dossiers_int}")
+    print(f"Nombre d’accoudoir : {nb_accoudoirs}")
+    # Dimensions des mousses droites (banquettes)
+    for i, (L_b, P_b) in enumerate(banquette_sizes, start=1):
+        print(f"Dimension mousse {i} : {L_b}, {P_b}")
+    # Les dimensions des dossiers ne sont plus affichées individuellement pour U.
+    # Elles peuvent être calculées via `banquette_dims` mais ne sont pas listées ici.
+    # Répartition des coussins par tailles
+    print(f"Nombre de coussins 65cm : {nb_coussins_65}")
+    print(f"Nombre de coussins 80cm : {nb_coussins_80}")
+    print(f"Nombre de coussins 90cm : {nb_coussins_90}")
+    print(f"Nombre de coussins valises total : {nb_coussins_valise}")
+    print(f"Nombre de traversin : {n_traversins}")
     turtle.done()
 
 def render_U_v1(
@@ -5773,14 +6576,29 @@ def build_polys_simple_S1(pts, dossier=True, acc_left=True, acc_right=True,
     polys["split_flags"]={"center":split}
     return polys
 
-def _choose_cushion_size_auto_simple_S1(x0, x1):
+def _choose_cushion_size_auto_simple_S1(x0, x1, candidates=(65, 80, 90)):
+    """
+    Choisit automatiquement une taille de coussin parmi ``candidates`` pour une banquette simple.
+
+    La règle de décision privilégie le moins de déchet et, en cas d'égalité,
+    la taille la plus grande.
+
+    Paramètres :
+      x0, x1    : coordonnées de début et de fin disponibles pour les coussins
+      candidates: iterable d'entiers (tailles possibles), par défaut (65, 80, 90)
+
+    Retourne :
+      int : la taille choisie parmi ``candidates``.
+    """
     usable = max(0, x1 - x0)
-    best, best_score = 65, (1e9, -1)
-    for s in (65, 80, 90):
+    best = None
+    best_score = None
+    for s in candidates:
         waste = usable % s if usable > 0 else 0
         score = (waste, -s)
-        if score < best_score:
-            best_score, best = score, s
+        if best_score is None or score < best_score:
+            best_score = score
+            best = s
     return best
 
 def _draw_coussins_simple_S1(t, tr, pts, size,
@@ -5888,6 +6706,11 @@ def render_Simple1(tx,
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
+    # Compteurs de coussins pour le rapport détaillé
+    nb_coussins_65 = 0
+    nb_coussins_80 = 0
+    nb_coussins_90 = 0
+    nb_coussins_valise = 0
     if spec["mode"] == "auto":
         x0 = pts.get("B0_m", pts["B0"])[0] if meridienne_side == 'g' else pts["B0"][0]
         x1 = pts.get("Bx_m", pts["Bx"])[0] if meridienne_side == 'd' else pts["Bx"][0]
@@ -5897,10 +6720,28 @@ def render_Simple1(tx,
         size = _choose_cushion_size_auto_simple_S1(x0, x1)
         nb_coussins = _draw_coussins_simple_S1(t, tr, pts, size, meridienne_side, meridienne_len, traversins=trv)
         total_line = f"{coussins} → {nb_coussins} × {size} cm"
+        # Mise à jour des compteurs pour le mode automatique
+        if size == 65:
+            nb_coussins_65 = nb_coussins
+        elif size == 80:
+            nb_coussins_80 = nb_coussins
+        elif size == 90:
+            nb_coussins_90 = nb_coussins
+        else:
+            nb_coussins_valise = nb_coussins
     elif spec["mode"] == "fixed":
         size = int(spec["fixed"])
         nb_coussins = _draw_coussins_simple_S1(t, tr, pts, size, meridienne_side, meridienne_len, traversins=trv)
         total_line = f"{coussins} → {nb_coussins} × {size} cm"
+        # Mise à jour des compteurs pour le mode fixe
+        if size == 65:
+            nb_coussins_65 = nb_coussins
+        elif size == 80:
+            nb_coussins_80 = nb_coussins
+        elif size == 90:
+            nb_coussins_90 = nb_coussins
+        else:
+            nb_coussins_valise = nb_coussins
     else:
         best = _optimize_valise_simple(pts, spec["range"], meridienne_side, meridienne_len, traversins=trv)
         if not best:
@@ -5908,6 +6749,15 @@ def render_Simple1(tx,
         size = best["size"]
         nb_coussins = _draw_simple_with_size(t, tr, pts, size, meridienne_side, meridienne_len, traversins=trv)
         total_line = f"{nb_coussins} × {size} cm"
+        # Mise à jour des compteurs pour le mode valise
+        if size == 65:
+            nb_coussins_65 = nb_coussins
+        elif size == 80:
+            nb_coussins_80 = nb_coussins
+        elif size == 90:
+            nb_coussins_90 = nb_coussins
+        else:
+            nb_coussins_valise = nb_coussins
 
     # Légende
     draw_legend(t, tr, tx, profondeur, items=legend_items, pos="top-right")
@@ -5926,6 +6776,25 @@ def render_Simple1(tx,
     print(f"Coussins   : {total_line}")
     if meridienne_side:
         print(f"Méridienne : côté {'gauche' if meridienne_side=='g' else 'droit'} — {meridienne_len} cm")
+    # Bloc détaillé basé sur les données du schéma
+    nb_banquettes = len(polys["banquettes"])
+    nb_banquettes_angle = 0  # Canapé simple : pas de banquettes d’angle
+    nb_accoudoirs = len(polys["accoudoirs"])
+    nb_dossiers_int = int(round(dossiers_count))
+    print()
+    print("À partir des données console :")
+    print(f"Dimensions : {tx}×{profondeur} cm")
+    print(f"Nombre de banquettes : {nb_banquettes}")
+    print(f"Nombre de banquette d’angle : {nb_banquettes_angle}")
+    print(f"Nombre de dossiers : {nb_dossiers_int}")
+    print(f"Nombre d’accoudoir : {nb_accoudoirs}")
+    for i, (L_b, P_b) in enumerate(banquette_sizes, start=1):
+        print(f"Dimension mousse {i} : {L_b}, {P_b}")
+    print(f"Nombre de coussins 65cm : {nb_coussins_65}")
+    print(f"Nombre de coussins 80cm : {nb_coussins_80}")
+    print(f"Nombre de coussins 90cm : {nb_coussins_90}")
+    print(f"Nombre de coussins valises total : {nb_coussins_valise}")
+    print(f"Nombre de traversin : {n_traversins}")
     turtle.done()
 
 # =====================================================================
@@ -5974,7 +6843,7 @@ def TEST_24_LNF_v2_mer_gauche_split_TRg_ps():
 
 def TEST_25_LNF_v2_mer_bas_split_TRb_auto():
     render_LNF(
-        tx=520, ty=280, profondeur=80,
+        tx=420, ty=280, profondeur=80,
         dossier_left=True, dossier_bas=True,
         acc_left=True, acc_bas=False,               # méridienne bas -> pas d'accoudoir bas
         meridienne_side='b', meridienne_len=140,
@@ -6147,8 +7016,8 @@ def TEST_40_U1F_v3_TR_both_valise_g_palette():
         dossier_left=True, dossier_bas=True, dossier_right=True,
         acc_left=True, acc_right=True,
         meridienne_side=None, meridienne_len=0,
-        coussins="g", variant="v3",
-        traversins="g,d",
+        coussins="80-90", variant="v3",
+        traversins="",
         couleurs={"accoudoirs": "gris", "assise": "crème", "coussins": "taupe"},
         window_title="T40 — U1F v3 | TR G+D | valise g | palette dict"
     )
@@ -6390,7 +7259,7 @@ if __name__ == "__main__":
     #TEST_22_LNF_v1_mer_bas_split_TRb_gs()
     #TEST_23_LNF_v1_grand_scission_valise_TRgb_palette()
     #TEST_24_LNF_v2_mer_gauche_split_TRg_ps()
-    #TEST_25_LNF_v2_mer_bas_split_TRb_auto()
+    TEST_25_LNF_v2_mer_bas_split_TRb_auto()
     #TEST_26_LF_mer_bas_TRgb_palette_dict()
     #TEST_27_LF_valise_sans_mer_TRg_split()
     #TEST_28_S1_TR_both_auto_palette()
@@ -6401,7 +7270,7 @@ if __name__ == "__main__":
     #TEST_33_U_v3_valise_p_sans_TR()
     #TEST_34_U_v4_TR_both_75_palette_hex()
     #TEST_35_U2F_mer_g_120_no_accL_s_TRd()
-    TEST_36_U2F_mer_d_100_no_accR_80_TRg()
+    #TEST_36_U2F_mer_d_100_no_accR_80_TRg()
     #TEST_37_U2F_valise_same_TR_both()
     #TEST_38_U1F_v1_mer_g_90_no_accL_p_TRd()
     #TEST_39_U1F_v2_mer_d_110_no_accR_65_TRg()
