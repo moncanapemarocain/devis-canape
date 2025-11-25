@@ -15,7 +15,7 @@ Principales règles :
 * **Mousses** : pour chaque mousse droite ou d’angle, le prix TTC est
   calculé par :
 
-      (longueur * largeur * épaisseur * densité * 21) / 1 000 000
+      (longueur * largeur * épaisseur * densité * 22) / 1 000 000
 
   où les dimensions proviennent du rapport console, l’épaisseur est
   saisie par l’utilisateur (cm) et la densité dépend du type de mousse
@@ -324,7 +324,7 @@ def _compute_foam_and_fabric_price(dims: List[Tuple[float, float]], thickness: f
 
     Pour chaque coussin, le prix de la mousse est :
 
-        (longueur * largeur * épaisseur * densité * 21) / 1 000 000
+        (longueur * largeur * épaisseur * densité * 22) / 1 000 000
 
     Le prix du tissu est déterminé par la largeur et l’épaisseur : si
     ``largeur + (épaisseur * 2) > 140`` alors ``(longueur/100) * 105`` sinon
@@ -333,7 +333,7 @@ def _compute_foam_and_fabric_price(dims: List[Tuple[float, float]], thickness: f
     foam_total = 0.0
     fabric_total = 0.0
     for L, W in dims:
-        foam_total += (L * W * thickness * density * 21.0) / 1_000_000.0
+        foam_total += (L * W * thickness * density * 22.0) / 1_000_000.0
         if (W + (thickness * 2.0)) > 140.0:
             fabric_total += (L / 100.0) * 105.0
         else:
@@ -432,13 +432,13 @@ def calculer_prix_total(
     details: List[Dict[str, object]] = []
     # Détails mousse et tissu par coussin droit
     for idx, (length, width) in enumerate(dims, start=1):
-        foam_price = (length * width * epaisseur_val * density * 21.0) / 1_000_000.0
+        foam_price = (length * width * epaisseur_val * density * 22.0) / 1_000_000.0
         details.append({
             'category': 'foam',
             'item': f'Mousse droite {idx} ({length}×{width} cm)',
             'quantity': 1,
             'unit_price': round(foam_price, 2),
-            'formula': f'({length}*{width}*{epaisseur_val}*{density}*21)/1 000 000',
+            'formula': f'({length}*{width}*{epaisseur_val}*{density}*22)/1 000 000',
             'total_price': round(foam_price, 2)
         })
         if (width + (epaisseur_val * 2)) > 140:
@@ -457,13 +457,13 @@ def calculer_prix_total(
         })
     # Détails mousse et tissu pour coussins d’angle
     for idx, (length, width) in enumerate(dims_angle, start=1):
-        foam_price = (length * width * epaisseur_val * density * 21.0) / 1_000_000.0
+        foam_price = (length * width * epaisseur_val * density * 22.0) / 1_000_000.0
         details.append({
             'category': 'foam',
             'item': f'Mousse angle {idx} ({length}×{width} cm)',
             'quantity': 1,
             'unit_price': round(foam_price, 2),
-            'formula': f'({length}*{width}*{epaisseur_val}*{density}*21)/1 000 000',
+            'formula': f'({length}*{width}*{epaisseur_val}*{density}*22)/1 000 000',
             'total_price': round(foam_price, 2)
         })
         if (width + (epaisseur_val * 2)) > 140:
