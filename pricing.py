@@ -95,7 +95,12 @@ def _load_canape_module() -> object:
     this_dir = os.path.dirname(os.path.abspath(__file__))
     # Hard‑coded filename as uploaded by the user; if it ever changes
     # update this string accordingly.
-    filename = '📂 Télécharger le fichier canapefullv88_matplot.py'
+    # The rendering module used by the application is named
+    # ``canapematplot.py``.  Update the filename accordingly so that
+    # this pricing module can locate and import it.  If you need to
+    # support other names in the future, consider adding a list of
+    # candidates here.
+    filename = 'canapematplot.py'
     path = os.path.join(this_dir, filename)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Cannot find the canape rendering module at {path!r}")
