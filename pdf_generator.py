@@ -30,12 +30,15 @@ IMAGE_FILES = {
 }
 
 
-def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=None, reduction_ttc=0.0):
+def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=None,
+                      reduction_ttc=0.0, show_detail_devis=True, show_detail_cr=True):
     """
-    Génère un PDF de devis. La première page contient le résumé et le schéma, la seconde page
-    (facultative) présente un tableau détaillé des éléments et des prix. Une remise TTC peut
-    être indiquée et sera visible sur les deux pages. Un pied de page fixe est ajouté à
-    chaque page.
+    Génère un PDF de devis. La première page contient le résumé et le schéma. La seconde page
+    (facultative) présente un tableau détaillé des éléments et des prix si ``show_detail_devis``
+    est ``True`` et que des détails sont disponibles. La troisième page (facultative) présente
+    le tableau du coût de revient si ``show_detail_cr`` est ``True`` et que des détails de
+    coût de revient sont fournis. Une remise TTC peut être indiquée et sera visible sur la
+    première page. Un pied de page fixe est ajouté à chaque page.
     """
     buffer = BytesIO()
     
@@ -198,9 +201,8 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     lignes_info = []
     if client.get('nom'):
         lignes_info.append(f"<b>Nom:</b> {client['nom']}")
-    if client.get('telephone'):
-        lignes_info.append(f"<b>Téléphone:</b> {client['telephone']}")
-    # Afficher l'en-tête client seulement si au moins une information est renseignée
+    # Ne pas afficher le téléphone ou l'email dans le devis selon la demande
+    # Afficher l'en-tête client seulement si au moins une information est renseignée (ici le nom)
     if lignes_info:
         elements.append(Paragraph("<br/>".join(lignes_info), header_info_style))
     
@@ -342,13 +344,14 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     ]))
     elements.append(devis_table)
 
-    # Si des détails de calculs complets sont disponibles, générer une page supplémentaire les affichant.
+    # Si des détails de calculs complets sont disponibles et que l'option d'affichage est activée,
+    # générer une page supplémentaire les affichant.
     calculation_details = prix_details.get('calculation_details', None)
-    if calculation_details:
+    if calculation_details and show_detail_devis:
         elements.append(PageBreak())
         elements.append(Paragraph("Détail des calculs du prix", title_style))
         elements.append(Spacer(1, 0.3 * cm))
-        # Créer un tableau avec colonnes : Catégorie, Article, Quantité, Prix unitaire, Formule, Total
+        # Créer un tableau avec colonnes : Catégorie, Article, Quantité, Prix unitaire, Formule, Total
         table_data = []
         # En-têtes
         table_data.append([
@@ -399,9 +402,9 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         ]))
         elements.append(detail_table)
 
-        # Génération d'une page dédiée au coût de revient si les détails existent
+        # Génération d'une page dédiée au coût de revient si les détails existent et que l'option est activée
         cr_details = prix_details.get('calculation_details_cr', None)
-        if cr_details:
+        if cr_details and show_detail_cr:
             elements.append(PageBreak())
             elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
             elements.append(Spacer(1, 0.3 * cm))
