@@ -717,6 +717,10 @@ with tab6:
                         prix_details['reduction_ttc'] = reduction_ttc
                     else:
                         prix_details['reduction_ttc'] = 0.0
+                    # Recalculer la marge HT après remise
+                    # La marge = (prix de vente TTC après remise / 1.2) - coût de revient HT
+                    cr_total = prix_details.get('cout_revient_ht', 0.0)
+                    prix_details['marge_ht'] = round((prix_details['total_ttc'] / 1.20) - cr_total, 2)
 
                     # Récupération du tableau détaillé du devis depuis la session
                     breakdown_rows = st.session_state.get('breakdown_rows', None)
