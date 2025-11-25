@@ -593,7 +593,13 @@ with tab6:
                     # Traversins supplémentaires
                     breakdown_rows.append(("Traversins", nb_traversins_supp, f"{price_traversins:.2f} €"))
                     # Surmatelas
-                    breakdown_rows.append(("Surmatelas", 1 if has_surmatelas else 0, f"{price_surmatelas:.2f} €"))
+                    # Déterminer le nombre de surmatelas en se basant sur le total TTC renvoyé par
+                    # ``calculer_prix_total``.  Lorsque l'option surmatelas est activée, la fonction
+                    # de pricing ajoute un surmatelas par mousse (dimension) et renvoie un total TTC
+                    # égal à 80 € par unité.  On divise donc ce total par 80 pour obtenir la quantité.
+                    surmatelas_total_ttc = prix_details_full.get('surmatelas_total', 0.0)
+                    nb_surmatelas_units = int(round(surmatelas_total_ttc / 80.0)) if has_surmatelas else 0
+                    breakdown_rows.append(("Surmatelas", nb_surmatelas_units, f"{price_surmatelas:.2f} €"))
                     # Dossiers
                     breakdown_rows.append(("Dossiers", nb_dossier_selected, f"{price_dossiers:.2f} €"))
                     # Mousse par banquette
