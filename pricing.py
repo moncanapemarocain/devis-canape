@@ -100,7 +100,8 @@ def calculer_prix_from_data(
     type_mousse: str = "D25",
     epaisseur: float = 25.0,
 ) -> Dict[str, float]:
-    """Calcule le prix TTC total à partir des dimensions et des quantités fournies.
+    """
+    Calcule le prix TTC total à partir des dimensions et des quantités fournies.
 
     :param banquette_dims: liste des dimensions (longueur, largeur) de chaque banquette droite
     :param angle_dims: liste des dimensions (longueur, largeur) de chaque banquette d'angle
@@ -216,7 +217,8 @@ def calculer_prix_total(
     has_surmatelas: bool,
     has_meridienne: bool,
 ) -> Dict[str, float]:
-    """Compatibilité avec l'ancienne signature de calculer_prix_total.
+    """
+    Compatibilité avec l'ancienne signature de calculer_prix_total.
 
     Cette fonction convertit les paramètres de haut niveau (dimensions,
     options sélectionnées) en listes de banquettes et d'angles, puis
@@ -225,10 +227,8 @@ def calculer_prix_total(
     # Conversion des longueurs en listes de banquettes droites
     banquette_dims: List[Tuple[float, float]] = []
     angle_dims: List[Tuple[float, float]] = []
-    # Détermination des banquettes et angles selon le type de canapé
     type_lower = (type_canape or "").lower()
-    # Taille de l'angle approximée : profondeur + 20 cm (mais limitée à profondeur
-    # pour éviter des valeurs aberrantes si la profondeur est déjà grande)
+    # Taille de l'angle approximée : profondeur + 20 cm
     angle_size = profondeur + 20.0
     if "simple" in type_lower:
         banquette_dims = [(tx or 0.0, profondeur)]
@@ -242,7 +242,7 @@ def calculer_prix_total(
     elif "u" in type_lower:
         # U sans angle : trois banquettes droites
         banquette_dims = [(ty or 0.0, profondeur), (tx or 0.0, profondeur), (tz or 0.0, profondeur)]
-        # U avec 1 angle (u1f) ou 2 angles (u2f) : angles ajoutés en fin
+        # U avec angles : ajouter les angles correspondants
         if "1 angle" in type_lower or "u1f" in type_lower:
             angle_dims = [(angle_size, angle_size)]
         elif "2 angles" in type_lower or "u2f" in type_lower:
@@ -257,15 +257,10 @@ def calculer_prix_total(
 
     # Comptage des coussins d'assise selon la taille sélectionnée
     nb_coussins_65 = nb_coussins_80 = nb_coussins_90 = nb_coussins_valise = 0
-    # Si type_coussins est numérique, on calcule un nombre de coussins basique
     try:
         taille_coussins = int(type_coussins)
         # Estimation du nombre total de coussins en fonction de la somme des longueurs
-        total_length = 0.0
-        for lng, _ in banquette_dims:
-            total_length += lng
-        for lng, _ in angle_dims:
-            total_length += lng
+        total_length = sum(lng for lng, _ in banquette_dims + angle_dims)
         # Au minimum 2 coussins
         nb_coussins = max(2, int(total_length / max(taille_coussins, 1)))
         if taille_coussins == 65:
@@ -278,14 +273,13 @@ def calculer_prix_total(
             nb_coussins_valise = nb_coussins
     except Exception:
         # Tailles spéciales ('auto', 'valise', 'p', 'g') considérées comme coussins valise
-        # On ne peut pas déterminer un nombre précis ; par défaut 0
         nb_coussins_valise = 0
 
     # Traversins supplémentaires
     nb_traversins = nb_traversins_supp
     # Surmatelas : 1 si activé
     nb_surmatelas_int = 1 if has_surmatelas else 0
-    # Nombre d'arrondis : un par banquette droite et par angle
+    # Nombre d'arrondis : un par banquette et par angle
     nb_arrondis_int = len(banquette_dims) + len(angle_dims)
 
     # Appel de la nouvelle fonction de calcul
@@ -306,12 +300,10 @@ def calculer_prix_total(
         epaisseur,
     )
 
-    # Conversion du prix TTC en prix HT et TVA (20 %)
     total_ttc = prix_data.get('total_ttc', 0.0)
     prix_ht = total_ttc / 1.20 if total_ttc else 0.0
     tva = total_ttc - prix_ht
 
-    # Nous ne calculons pas ici le coût de revient HT (pas disponible)
     return {
         'prix_ht': round(prix_ht, 2),
         'tva': round(tva, 2),
