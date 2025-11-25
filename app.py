@@ -474,18 +474,21 @@ with tab6:
                     # Total hors arrondis (base + options)
                     prix_ht_sans_arrondis = alt_no_extras_ht + price_acc + price_dossiers + price_mousse + price_coussins_total
 
-                    # Prix arrondis
-                    suppl_arrondis = 0
-                    suppl_arrondis_ttc = 0
-                    if arrondis:
-                        # Le tarif arrondi est défini en TTC (20 € par banquette ou angle).
-                        # Pour le calcul HT, on divise par 1,20. On conserve également le TTC pour l'affichage.
-                        nb_arr_units = nb_banquettes + nb_angles
-                        suppl_arrondis = (20.0 / 1.20) * nb_arr_units
-                        suppl_arrondis_ttc = 20.0 * nb_arr_units
-
-                    # Prix total HT
-                    prix_ht_total = prix_ht_sans_arrondis + suppl_arrondis
+                    # Calcul complet du devis via le module de pricing (inclut arrondis)
+                    prix_details_full = calculer_prix_total(
+                        type_canape=st.session_state.type_canape,
+                        tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
+                        profondeur=st.session_state.profondeur,
+                        type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
+                        acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
+                        dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
+                        arrondis=arrondis
+                    )
+                    # Récupération des totaux HT et TTC
+                    prix_ht_total = prix_details_full.get('prix_ht', 0.0)
+                    prix_ttc_total_avant_remise = prix_details_full.get('total_ttc', 0.0)
 
                     # Récupération de la remise
                     reduction_ttc = st.session_state.get('reduction_ttc', 0.0) or 0.0
@@ -494,6 +497,10 @@ with tab6:
                     prix_ht_apres_remise = max(0, prix_ht_total - reduction_ht)
                     tva_apres_remise = round(prix_ht_apres_remise * 0.20, 2)
                     total_ttc_apres_remise = round(prix_ht_apres_remise + tva_apres_remise, 2)
+
+                    # Montant TTC des arrondis pour l'affichage dans le récapitulatif
+                    # On récupère le montant TTC directement depuis le module de pricing
+                    suppl_arrondis_ttc = prix_details_full.get('arrondis_total', 0.0)
 
                     # Quantités
                     nb_acc_selected = int(acc_left) + int(acc_right) + int(acc_bas)
@@ -593,7 +600,8 @@ with tab6:
                     for idx, part_price in enumerate(price_mousse_per_bench, start=1):
                         # Libellé de la dimension : on utilise l'indice de la banquette pour différencier
                         breakdown_rows.append((f"Mousse {type_mousse} dim.{idx}", 1, f"{part_price:.2f} €"))
-                    # Arrondis : affichage TTC (20€ par banquette/angle)
+                    # Arrondis
+                    # Utiliser le montant TTC récupéré dans prix_details_full pour l'affichage
                     breakdown_rows.append(("Arrondis", nb_arrondis_units, f"{suppl_arrondis_ttc:.2f} €"))
                     # Tissu (inclus)
                     breakdown_rows.append(("Tissu (inclus)", "", "0.00 €"))
@@ -617,8 +625,7 @@ with tab6:
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
-                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
-                        arrondis=arrondis
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
                     )
                     cout_revient_ht_total = prix_details_calc.get('cout_revient_ht', 0.0)
                     marge_totale_ht = round(prix_ht_apres_remise - cout_revient_ht_total, 2)
