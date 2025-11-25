@@ -613,10 +613,9 @@ with tab6:
                     # Total TTC après remise
                     breakdown_rows.append(("Total TTC", "", f"{total_ttc_apres_remise:.2f} €"))
 
-                    # Calcul du prix TTC total avant remise (prix_ht_total converti en TTC)
+                    # Calcul du prix TTC total avant remise (conversion du HT en TTC)
                     prix_ttc_total_avant_remise = round(prix_ht_total * 1.20, 2)
-
-                    # Calcul de la marge totale HT : on utilise le coût de revient HT fourni par le module de pricing
+                    # On calcule à nouveau le coût de revient pour intégrer correctement les arrondis
                     prix_details_calc = calculer_prix_total(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -625,10 +624,12 @@ with tab6:
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
-                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
+                        arrondis=arrondis
                     )
                     cout_revient_ht_total = prix_details_calc.get('cout_revient_ht', 0.0)
-                    marge_totale_ht = round(prix_ht_apres_remise - cout_revient_ht_total, 2)
+                    # Marge totale HT = (prix TTC après remise converti en HT) - coût de revient HT
+                    marge_totale_ht = round((total_ttc_apres_remise / 1.20) - cout_revient_ht_total, 2)
 
                     # Affichage du schéma et d'un résumé simplifié du devis
                     st.success("✅ Schéma généré avec succès !")
