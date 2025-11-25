@@ -30,20 +30,12 @@ IMAGE_FILES = {
 }
 
 
-def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=None, reduction_ttc=0.0, *, include_detail_pages: bool = True):
+def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=None, reduction_ttc=0.0):
     """
-    Génère un PDF de devis. La première page contient le résumé et le schéma. Par défaut, une
-    ou plusieurs pages supplémentaires présentant les calculs détaillés sont ajoutées. Si
-    ``include_detail_pages`` est ``False``, ces pages additionnelles (page 2 et page 3) ne
-    seront pas générées.
-
-    :param config: configuration du canapé et informations client
-    :param prix_details: dictionnaire de calculs de prix provenant de ``pricing.calculer_prix_total``
-    :param schema_image: buffer d'image du schéma (ou ``None``)
-    :param breakdown_rows: tableau récapitulatif optionnel à afficher en première page
-    :param reduction_ttc: montant de la remise TTC appliquée (affichée en récapitulatif)
-    :param include_detail_pages: si ``True``, génère les pages détaillées du prix et du coût de
-        revient (pages 2 et 3). Si ``False``, ces pages sont omises.
+    Génère un PDF de devis. La première page contient le résumé et le schéma, la seconde page
+    (facultative) présente un tableau détaillé des éléments et des prix. Une remise TTC peut
+    être indiquée et sera visible sur les deux pages. Un pied de page fixe est ajouté à
+    chaque page.
     """
     buffer = BytesIO()
     
@@ -497,3 +489,4 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     buffer.seek(0)
     return buffer
+
