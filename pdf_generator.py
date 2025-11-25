@@ -398,6 +398,58 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
             ('FONTSIZE', (0, 0), (-1, -1), 9),
         ]))
         elements.append(detail_table)
+
+        # Génération d'une page dédiée au coût de revient si les détails existent
+        cr_details = prix_details.get('calculation_details_cr', None)
+        if cr_details:
+            elements.append(PageBreak())
+            elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
+            elements.append(Spacer(1, 0.3 * cm))
+            # Préparer le tableau pour le coût de revient
+            cr_table_data = []
+            cr_table_data.append([
+                Paragraph('<b>Catégorie</b>', styles['Normal']),
+                Paragraph('<b>Article</b>', styles['Normal']),
+                Paragraph('<b>Qté</b>', styles['Normal']),
+                Paragraph('<b>Coût unitaire</b>', styles['Normal']),
+                Paragraph('<b>Formule</b>', styles['Normal']),
+                Paragraph('<b>Total</b>', styles['Normal'])
+            ])
+            for entry in cr_details:
+                cat = entry.get('category', '')
+                item = entry.get('item', '')
+                qty = entry.get('quantity', '')
+                unit = entry.get('unit_price', '')
+                formula = entry.get('formula', '')
+                total = entry.get('total_price', '')
+                if isinstance(unit, (int, float)):
+                    unit = f"{unit:.2f} €"
+                if isinstance(total, (int, float)):
+                    total = f"{total:.2f} €"
+                cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
+            # Ajouter le total du coût de revient et la marge en bas du tableau
+            cr_table_data.append([
+                Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
+            ])
+            # Afficher la marge HT si disponible
+            if 'marge_ht' in prix_details:
+                cr_table_data.append([
+                    Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
+                ])
+            cr_col_widths = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
+            cr_detail_table = Table(cr_table_data, colWidths=cr_col_widths, repeatRows=1)
+            cr_detail_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
+                ('ALIGN', (2, 1), (2, -1), 'CENTER'),
+                ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
+                ('ALIGN', (5, 1), (5, -1), 'RIGHT'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
+                ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
+                ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ]))
+            elements.append(cr_detail_table)
     # Si aucune liste détaillée n'est fournie mais que des totaux existent, afficher ces derniers dans un tableau simple
     elif any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total']):
         elements.append(PageBreak())
