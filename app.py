@@ -1,767 +1,1045 @@
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+"""
+Application Streamlit pour générer des devis de canapés sur mesure
+Compatible Streamlit Cloud - Utilise canapematplot.py
+"""
+
+import streamlit as st
+import matplotlib.pyplot as plt
 from io import BytesIO
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import os
+from PIL import Image
+from typing import Optional, Dict
 
-# --- POLICE UNICODE ---
-FONT_NAME_UNICODE = 'DejaVuSans'
-FONT_FILE = 'DejaVuSans.ttf'
-
-if os.path.exists(FONT_FILE):
-    pdfmetrics.registerFont(TTFont(FONT_NAME_UNICODE, FONT_FILE))
-    BASE_FONT = FONT_NAME_UNICODE
-else:
-    BASE_FONT = 'Helvetica'
-    print(f"ATTENTION : Le fichier de police {FONT_FILE} est introuvable.")
-# ----------------------
-
-# --- MAPPING DES IMAGES ---
-IMAGE_FILES = {
-    'D25': 'D25.png',
-    'D30': 'D30.png',
-    'HR35': 'HR35.png',
-    'HR45': 'HR45.png'
+# Palette de couleurs personnalisable pour le rendu du schéma.
+# La clef "Transparent (par défaut)" correspond à une absence de remplissage
+# (les rectangles seront transparents). Les autres entrées sont converties
+# en codes hexadécimaux lors du rendu.
+COLOR_PALETTE: Dict[str, Optional[str]] = {
+    # La première entrée correspond à la sélection « Blanc » par défaut.  L'ancienne entrée
+    # « Transparent (par défaut) » est conservée comme option mais n'est plus utilisée comme valeur par défaut.
+    "Blanc": "#ffffff",
+    "Transparent": None,
+    "Beige": "#d8c4a8",
+    "Beige clair": "#e6dac8",
+    "Crème": "#f4f1e9",
+    "Taupe": "#8B7E74",
+    "Gris foncé": "#7d7d7d",
+    "Gris clair": "#cfcfcf",
+    "Marron clair": "#a1866f",
 }
 
+# Import des modules personnalisés
+# Import du nouveau module de pricing (avec angle traité comme banquette)
+from pricing import calculer_prix_total
+from pdf_generator import generer_pdf_devis
 
-def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=None,
-                      reduction_ttc=0.0, show_detail_devis=True, show_detail_cr=True):
-    """
-    Génère un PDF de devis. La première page contient le résumé et le schéma. Des pages
-    supplémentaires peuvent être ajoutées pour présenter le détail du prix (page 2) et
-    le détail du coût de revient (page 3). Ces pages ne sont ajoutées que si
-    ``show_detail_devis`` et ``show_detail_cr`` sont à ``True``.
+# Import des fonctions de génération de schémas
+from canapematplot import (
+    render_LNF, render_LF_variant, render_U2f_variant,
+    render_U, render_U1F_v1, render_U1F_v2, render_U1F_v3, render_U1F_v4,
+    render_Simple1
+)
 
-    :param config: Configuration du canapé et des options.
-    :param prix_details: Dictionnaire renvoyé par ``calculer_prix_total`` contenant les totaux et
-        éventuellement des listes ``calculation_details`` et ``calculation_details_cr``.
-    :param schema_image: Image du schéma généré (objet BytesIO ou chemin), optionnel.
-    :param breakdown_rows: Tableau simple du détail du devis, optionnel.
-    :param reduction_ttc: Montant de réduction TTC appliqué.
-    :param show_detail_devis: Booléen contrôlant l'ajout de la page 2 détaillant le prix.
-    :param show_detail_cr: Booléen contrôlant l'ajout de la page 3 détaillant le coût de
-        revient.
-    """
-    buffer = BytesIO()
-    
-    doc = SimpleDocTemplate(buffer, pagesize=A4,
-                           rightMargin=1*cm, leftMargin=1*cm,
-                           topMargin=1*cm, bottomMargin=6*cm)
-    
-    elements = []
-    styles = getSampleStyleSheet()
-    
-    # --- DÉFINITION DES STYLES ---
-    title_style = ParagraphStyle(
-        'CustomTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.black, 
-        spaceAfter=5, alignment=TA_CENTER, fontName=BASE_FONT + '-Bold'
-    )
-    
-    header_info_style = ParagraphStyle(
-        'HeaderInfo', parent=styles['Normal'], fontSize=12, leading=14, 
-        textColor=colors.black, alignment=TA_CENTER, fontName=BASE_FONT
-    )
-    
-    price_style = ParagraphStyle(
-        'PriceStyle', parent=styles['Heading2'], fontSize=16, alignment=TA_CENTER, 
-        fontName=BASE_FONT, textColor=colors.black, spaceBefore=10, spaceAfter=10
-    )
-    
-    # Style de description de mousse
-    # Réduction de la taille de police (12 -> 10) pour laisser plus de place au schéma et aux informations
-    description_mousse_style = ParagraphStyle(
-        'MousseDesc', parent=styles['Normal'], fontSize=10, leading=11, 
-        textColor=colors.black, alignment=TA_LEFT, fontName=BASE_FONT
-    )
-    
-    # Styles pour le pied de page
-    # Les tailles de police sont légèrement réduites pour alléger le pied de page
-    column_header_style = ParagraphStyle(
-        'ColumnHeaderStyle', parent=styles['Normal'], fontSize=11, alignment=TA_LEFT, 
-        fontName=BASE_FONT + '-Bold', spaceAfter=6
-    )
+# Configuration de la page
+st.set_page_config(
+    page_title="Configurateur Canapé Marocain",
+    page_icon="🛋️",
+    layout="wide"
+)
 
-    detail_style = ParagraphStyle(
-        'DetailStyle', parent=styles['Normal'], fontSize=10, leading=11, 
-        textColor=colors.black, alignment=TA_LEFT, fontName=BASE_FONT
-    )
-    
-    footer_style = ParagraphStyle(
-        'FooterStyle', parent=styles['Normal'], fontSize=12, textColor=colors.black, 
-        alignment=TA_CENTER, spaceBefore=10, fontName=BASE_FONT
-    )
-
-    # Style spécifique pour les en-têtes du pied de page (« Il faut savoir que le tarif comprend »
-    # et « Détail des cotations »). Il hérite de column_header_style mais réduit la taille de
-    # police de deux points pour correspondre aux exigences utilisateur.
-    footer_header_style = ParagraphStyle(
-        'FooterHeaderStyle', parent=column_header_style,
-        fontSize=column_header_style.fontSize - 2,
-        alignment=TA_LEFT,
-        fontName=column_header_style.fontName,
-        spaceAfter=column_header_style.spaceAfter
-    )
-
-    # --- FONCTION INTERNE POUR DESSINER LE PIED DE PAGE FIXE ---
-    def draw_footer(canvas, doc):
-        canvas.saveState()
-        
-        # 1. Préparation des données des colonnes
-        
-        # Colonne Gauche
-        col_gauche = []
-        col_gauche.append(Paragraph("Il faut savoir que le tarif comprend :", footer_header_style))
-        inclus_items = [
-            # "Livraison bas d'immeuble" a été retiré conformément aux spécifications
-            "Fabrication 100% artisanale France",
-            "Choix du tissu n'impacte pas le devis",
-            "Paiement 2 à 6 fois sans frais",
-            "Livraison 5 à 7 semaines",
-            "Housses déhoussables"
-        ]
-        for item in inclus_items:
-            col_gauche.append(Paragraph(f"• {item}", detail_style))
-
-        # Colonne Droite
-        col_droite = []
-        col_droite.append(Paragraph("Détail des cotations :", footer_header_style))
-        
-        h_mousse = config['options'].get('epaisseur', 25)
-        h_assise = 46 if h_mousse > 20 else 40
-        
-        cotations_items = [
-            "Accoudoir: 15cm large / 60cm haut",
-            "Dossier: 10cm large / 70cm haut",
-            "Coussins: 65/80/90cm large",
-            f"Profondeur assise: {config['dimensions']['profondeur']} cm",
-            f"Hauteur assise: {h_assise} cm (Mousse {h_mousse}cm)"
-        ]
-        for item in cotations_items:
-            col_droite.append(Paragraph(f"• {item}", detail_style))
-
-        table_footer = Table([[col_gauche, col_droite]], colWidths=[9.5*cm, 9.5*cm])
-        table_footer.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-        ]))
-        
-        w, h = table_footer.wrap(doc.width, doc.bottomMargin)
-        table_footer.drawOn(canvas, doc.leftMargin, 1.5*cm)
-        
-        # 2. Ville (ex-Partie 6)
-        p_ville = Paragraph("FRÉVENT 62270", footer_style)
-        w_ville, h_ville = p_ville.wrap(doc.width, doc.bottomMargin)
-        p_ville.drawOn(canvas, doc.leftMargin, 0.5*cm)
-        
-        canvas.restoreState()
-
-    # =================== CONTENU DU DOCUMENT ===================
-    
-    # 1. TITRE et INFOS HAUTES
-    # Le titre principal "MON CANAPÉ MAROCAIN" est omis selon les directives.
-    
-    # Préparation des informations générales pour la suite
-    type_canape = config.get('type_canape', '')
-    dims = config.get('dimensions', {})
-    # Détermination de la chaîne de dimensions selon le type de canapé
-    if "U" in type_canape:
-        dim_str = f"{dims.get('ty',0)} x {dims.get('tx',0)} x {dims.get('tz',0)}"
-    elif "L" in type_canape:
-        dim_str = f"{dims.get('ty',0)} x {dims.get('tx',0)}"
-    else:
-        dim_str = f"{dims.get('tx',0)} x {dims.get('profondeur',0)}"
-
-    mousse_type = config.get('options', {}).get('type_mousse', 'HR35')
-
-    # Déterminer le nombre d'accoudoirs (0, 1 ou 2)
-    acc_count = 0
-    if config.get('options', {}).get('acc_left', False):
-        acc_count += 1
-    if config.get('options', {}).get('acc_right', False):
-        acc_count += 1
-    # Afficher "Avec" s'il y a au moins un accoudoir, sinon "Sans"
-    acc_txt = "Avec" if acc_count > 0 else "Sans"
-
-    # Déterminer les positions de dossiers : bas, gauche, droite
-    opts = config.get('options', {})
-    dossier_positions = []
-    if opts.get('dossier_bas', False):
-        dossier_positions.append('bas')
-    if opts.get('dossier_left', False) or opts.get('dossier_gauche', False):
-        dossier_positions.append('gauche')
-    if opts.get('dossier_right', False) or opts.get('dossier_droite', False):
-        dossier_positions.append('droite')
-    # Si des dossiers sont présents (peu importe leur nombre ou position), afficher « Avec », sinon « Sans »
-    if len(dossier_positions) == 0:
-        dossier_txt = 'Sans'
-    else:
-        dossier_txt = 'Avec'
-
-    # En-tête client uniquement : ne pas afficher dimensions/confort/dossiers/accoudoirs ici
-    client = config.get('client', {})
-    lignes_info = []
-    if client.get('nom'):
-        lignes_info.append(f"<b>Nom:</b> {client['nom']}")
-    if client.get('telephone'):
-        lignes_info.append(f"<b>Téléphone:</b> {client['telephone']}")
-    # Afficher l'en-tête client seulement si au moins une information est renseignée
-    if lignes_info:
-        elements.append(Paragraph("<br/>".join(lignes_info), header_info_style))
-    
-    # Description mousse dynamique
-    descriptions_mousse = {
-        'D25': "La mousse D25 est une mousse polyuréthane de 25kg/m3. Elle est très ferme, parfaite pour les habitués des banquettes marocaines classiques.",
-        'D30': "La mousse D30 est une mousse polyuréthane de 30kg/m3. Elle est ultra ferme, idéale pour ceux qui recherchent un canapé très ferme.",
-        'HR35': "La mousse HR35 est une mousse haute résilience de 35kg/m3. Elle est semi ferme confortable, parfaite pour les adeptes des salons confortables.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l’affaissement dans le temps.",
-        'HR45': "La mousse HR45 est une mousse haute résilience de 45kg/m3. Elle est ferme confortable, parfaite pour les adeptes des salons confortables mais pas trop moelleux.<br/>Les mousses haute résilience reprennent rapidement leur forme initiale et donc limitent l’affaissement dans le temps."
+# CSS personnalisé pour le design
+st.markdown("""
+<style>
+    /* Fond principal */
+    .stApp {
+        background-color: #FBF6EF;
     }
-    texte_mousse = descriptions_mousse.get(mousse_type, descriptions_mousse['HR35'])
     
-    elements.append(Spacer(1, 0.2*cm))
+    /* Titres */
+    h1, h2, h3 {
+        color: #372E2B !important;
+    }
+
+    p {
+        color: #8C6F63 !important;
+    }
     
-    # --- MODIFICATION CLÉ : Image et Texte en Tableau ---
-    image_path = IMAGE_FILES.get(mousse_type)
+    /* Onglets */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+        background-color: #EDE7DE;
+        padding: 10px;
+        border-radius: 10px;
+    }
     
-    if image_path:
+    .stTabs [data-baseweb="tab"] {
+        background-color: #EDE7DE;
+        color: #8C6F63;
+        border-radius: 8px;
+        padding: 12px 24px;
+        font-weight: 500;
+        border: none;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: #FBF6EF !important;
+        color: #8C6F63 !important;
+        font-weight: 600;
+    }
+    
+    /* Champs de saisie */
+    .stTextInput input, .stNumberInput input, .stSelectbox select {
+        background-color: #EDE7DE !important;
+        color: #8C6F63 !important;
+        border: 1px solid #D5CFC6 !important;
+        border-radius: 8px !important;
+    }
+    
+    .stTextInput label, .stNumberInput label, .stSelectbox label {
+        color: #8C6F63 !important;
+        font-weight: 500;
+    }
+
+    div.st-an {
+        background-color : red 
+    }
+    
+    /* Checkbox */
+    .stCheckbox label {
+        color: #8C6F63 !important;
+    }
+
+    div.st-emotion-cache-1q82h82.e1wr3kle3 {
+        color: black;
+    }
+    
+    /* Boutons normaux */
+    .stButton button {
+        background-color: #EDE7DE !important;
+        color: #8C6F63 !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 12px 24px !important;
+        font-weight: 500 !important;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton button:hover {
+        background-color: #D5CFC6 !important;
+        transform: translateY(-2px);
+    }
+
+    
+    .stButton button[kind="primary"]:hover {
+        background-color: #D5CFC6 !important;
+    }
+    
+    /* Conteneurs */
+    .stContainer {
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    
+    /* Messages */
+    .stSuccess {
+        background-color: #D4EDDA !important;
+        color: #155724 !important;
+        border-radius: 8px;
+    }
+    
+    .stError {
+        background-color: #F8D7DA !important;
+        color: #721C24 !important;
+        border-radius: 8px;
+    }
+</style>
+""", unsafe_allow_html=True)
+def generer_schema_canape(
+    type_canape,
+    tx,
+    ty,
+    tz,
+    profondeur,
+    acc_left,
+    acc_right,
+    acc_bas,
+    dossier_left,
+    dossier_bas,
+    dossier_right,
+    meridienne_side,
+    meridienne_len,
+    coussins="auto",
+    nb_traversins_supp: int = 0,
+    traversins_positions: list[str] | None = None,
+    couleurs: Optional[Dict[str, Optional[str]]] = None,
+) -> plt.Figure:
+    """Génère le schéma du canapé.
+
+    Parameters
+    ----------
+    type_canape : str
+        Libellé du type de canapé (p. ex. "Simple (S)", "L - Sans Angle", etc.).
+    tx, ty, tz : int or None
+        Dimensions horizontales du canapé selon la configuration.
+    profondeur : int
+        Profondeur d'assise en centimètres.
+    acc_left, acc_right, acc_bas : bool
+        Indiquent la présence d'accoudoirs à gauche, à droite et en bas.
+    dossier_left, dossier_bas, dossier_right : bool
+        Indiquent la présence de dossiers sur les côtés.
+    meridienne_side : str or None
+        Côté de la méridienne ("g" ou "d"), ou None s'il n'y en a pas.
+    meridienne_len : int
+        Longueur de la méridienne en centimètres.
+    coussins : str or int
+        Mode d'optimisation des coussins ("auto", "65", "80", "80-90", "90", "valise", etc.).
+    nb_traversins_supp : int, optional
+        Nombre de traversins supplémentaires sélectionnés dans le formulaire. Si strictement positif,
+        des traversins seront dessinés selon la géométrie du canapé.  Par défaut, aucun traversin
+        n'est dessiné.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        La figure générée représentant le canapé.
+    """
+    fig = plt.figure(figsize=(12, 8))
+
+    try:
+        # Initialiser la configuration des traversins uniquement si au moins un traversin
+        # supplémentaire est demandé.  Cela permet d'afficher les traversins sur le schéma
+        # uniquement lorsque l'utilisateur l'a explicitement indiqué dans le formulaire.
+        traversins_cfg: str | None = None
+        # Si l'utilisateur a sélectionné explicitement des positions pour les traversins,
+        # on les utilise pour le schéma.  Les valeurs possibles en entrée sont des
+        # libellés en français ("Gauche", "Droite", "Bas"); on les convertit en
+        # codes attendus par canapematplot/canapefullv88 : g, d, b.
+        if traversins_positions:
+            mapping = {
+                "gauche": "g",
+                "droite": "d",
+                "bas": "b",
+                "Gauche": "g",
+                "Droite": "d",
+                "Bas": "b",
+            }
+            codes = []
+            for pos in traversins_positions:
+                key = pos.strip().lower()
+                if key in mapping:
+                    codes.append(mapping[key])
+            # On trie et on supprime les doublons pour former la chaîne
+            if codes:
+                traversins_cfg = ",".join(sorted(set(codes)))
+        elif nb_traversins_supp and nb_traversins_supp > 0:
+            # Déterminer la configuration par défaut en fonction du type de canapé.
+            if "Simple" in type_canape:
+                traversins_cfg = "g,d"
+            elif "L" in type_canape:
+                traversins_cfg = "g,b"
+            elif "U" in type_canape:
+                traversins_cfg = "g,b,d"
+
+        # Choisir la fonction de rendu appropriée en fonction du type de canapé.
+        if "Simple" in type_canape:
+            render_Simple1(
+                tx=tx,
+                profondeur=profondeur,
+                dossier=dossier_bas,
+                acc_left=acc_left,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                couleurs=couleurs,
+                window_title="Canapé Simple",
+            )
+        elif "L - Sans Angle" in type_canape:
+            render_LNF(
+                tx=tx,
+                ty=ty,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                variant="auto",
+                couleurs=couleurs,
+                window_title="Canapé L - Sans Angle",
+            )
+        elif "L - Avec Angle" in type_canape:
+            render_LF_variant(
+                tx=tx,
+                ty=ty,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                couleurs=couleurs,
+                window_title="Canapé L - Avec Angle",
+            )
+        elif "U - Sans Angle" in type_canape:
+            render_U(
+                tx=tx,
+                ty_left=ty,
+                tz_right=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                acc_right=acc_right,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                variant="auto",
+                couleurs=couleurs,
+                window_title="Canapé U - Sans Angle",
+            )
+        elif "U - 1 Angle" in type_canape:
+            render_U1F_v1(
+                tx=tx,
+                ty=ty,
+                tz=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                couleurs=couleurs,
+                window_title="Canapé U - 1 Angle",
+            )
+        elif "U - 2 Angles" in type_canape:
+            render_U2f_variant(
+                tx=tx,
+                ty_left=ty,
+                tz_right=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                couleurs=couleurs,
+                window_title="Canapé U - 2 Angles",
+            )
+
+        fig = plt.gcf()
+        # Supprimer tout titre ou supertitre afin d'éviter l'affichage du nom de variante dans les exports
         try:
-            img_mousse = Image(image_path, width=2.5*cm, height=2.5*cm)
-            text_flowable = Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style)
-            
-            # Ajustement des colWidths pour laisser plus de marge
-            # 18cm de largeur totale disponible (A4 - 2x1cm marge)
-            mousse_table = Table([[img_mousse, text_flowable]], colWidths=[3*cm, 14*cm]) 
-            
-            mousse_table.setStyle(TableStyle([
-                # Centrage vertical par rapport à l'image
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), 
-                # Ajout de padding à gauche et à droite de la table complète pour effet de marge
-                ('LEFTPADDING', (0, 0), (0, 0), 0.5*cm), # Marge à gauche de l'image
-                ('RIGHTPADDING', (0, 0), (-1, -1), 0.5*cm), # Marge à droite du texte
-            ]))
-            elements.append(mousse_table)
-        except Exception:
-            # En cas d'erreur de fichier, afficher le texte seul 
-            elements.append(Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style))
-    else:
-        elements.append(Paragraph(f"<i>{texte_mousse}</i>", description_mousse_style))
-
-    elements.append(Spacer(1, 0.3*cm))
-
-    # 3. SCHÉMA
-    if schema_image:
-        try:
-            img = Image(schema_image)
-            # Pour obtenir un schéma plus grand dans le devis, on étend l’espace
-            # disponible pour l’image. La largeur disponible est fixée à la
-            # largeur utile de la page (`doc.width`), et la hauteur maximale est
-            # augmentée à 13 cm (au lieu de 10 cm) pour offrir une vue plus
-            # détaillée du schéma tout en laissant de la place pour le texte et
-            # le prix.
-            avail_width = doc.width
-            avail_height = 13 * cm
-            
-            img_w = img.imageWidth
-            img_h = img.imageHeight
-            
-            if img_w > 0:
-                aspect = img_h / float(img_w)
-            else:
-                aspect = 1.0
-
-            if aspect > (avail_height / avail_width):
-                img.drawHeight = avail_height
-                img.drawWidth = avail_height / aspect
-            else:
-                img.drawWidth = avail_width
-                img.drawHeight = avail_width * aspect
-            
-            elements.append(img)
-        except Exception:
-            elements.append(Paragraph("<i>(Schéma non disponible)</i>", header_info_style))
-
-        # Ajouter un espace avant le récapitulatif du devis. L'utilisateur souhaite que la section
-        # « Détail du devis » soit légèrement plus basse par rapport au schéma ; on augmente donc l'espace.
-        elements.append(Spacer(1, 1.0 * cm))
-
-    # 4. DÉTAIL DU DEVIS (remplace l'ancien bloc prix/remise et la page supplémentaire)
-    # Calculs des montants nécessaires
-    montant_ttc_val = float(prix_details.get('total_ttc', 0.0))
-    montant_ttc = f"{montant_ttc_val:.2f} €"
-    # Réduction TTC
-    reduction_ttc_val = float(reduction_ttc or 0.0)
-    # Prix avant réduction = montant actuel + réduction
-    prix_avant_reduc_val = montant_ttc_val + reduction_ttc_val
-    prix_avant_reduc = f"{prix_avant_reduc_val:.2f} €"
-
-    # Déterminer le nombre de coussins d'assise à partir du tableau détaillé, si disponible
-    nb_coussins_assise = None
-    if breakdown_rows:
-        try:
-            for row in breakdown_rows:
-                if isinstance(row, (list, tuple)) and len(row) >= 2 and "Coussins assise" in str(row[0]):
-                    nb_coussins_assise = row[1]
-                    break
-        except Exception:
-            nb_coussins_assise = None
-
-    # Détermination de la taille des coussins selon l'option choisie
-    type_coussins = config.get('options', {}).get('type_coussins', 'auto')
-    if type_coussins in ['65', '80', '90']:
-        taille_coussins = f"{type_coussins} cm"
-    elif type_coussins == '80-90':
-        # Nouvelle option 80-90 : chaque côté peut être optimisé en 80 ou 90 cm
-        taille_coussins = "80/90 cm"
-    elif type_coussins == 'auto':
-        taille_coussins = "65/80/90 cm"
-    elif type_coussins == 'valise':
-        taille_coussins = "format valise"
-    elif type_coussins == 'p':
-        taille_coussins = "petit modèle"
-    elif type_coussins == 'g':
-        taille_coussins = "grand modèle"
-    else:
-        taille_coussins = str(type_coussins)
-
-    # Déterminer l'étiquette de la ligne coussins. Pour les modèles valise/petit/grand, on utilise
-    # « Coussins valises » afin de refléter le type choisi ; sinon « Coussins ».
-    coussins_label = "Coussins"
-    if type_coussins in ['valise', 'p', 'g']:
-        coussins_label = "Coussins valises"
-
-    # Préparer des lignes supplémentaires pour traversins, coussins déco et surmatelas dans le tableau récapitulatif.
-    traversins_line = ""
-    deco_line = ""
-    surmatelas_line = ""
-    # Les informations détaillées se trouvent dans prix_details['calculation_details'] (si disponible)
-    details_list = prix_details.get('calculation_details', None)
-    if details_list:
-        try:
-            for entry in details_list:
-                cat = entry.get('category', '').lower()
-                item = entry.get('item', '').lower()
-                qty = entry.get('quantity', 0)
-                if cat == 'traversin' and qty:
-                    # Les traversins ont des dimensions fixes 70x30 cm
-                    traversins_line = f"Traversins : {qty} traversin{'s' if qty > 1 else ''} de 70x30cm"
-                elif cat == 'surmatelas' and qty:
-                    # Les surmatelas sont spécifiés comme "surmatelas confort" dans le devis
-                    surmatelas_line = f"Surmatelas : {qty} surmatelas confort"
-                elif cat == 'cushion' and 'déco' in item and qty:
-                    deco_line = f"Coussins déco : {qty}"
+            fig.suptitle("")
         except Exception:
             pass
+        return fig
+    except Exception as e:
+        plt.close()
+        raise Exception(f"Erreur lors de la génération du schéma : {str(e)}")
 
-    # === Construction de la section « Détail du devis » ===
-    # Création d'un tableau ligne par ligne pour aligner correctement les informations de gauche et de droite.
-    table_rows = []
-    # Ligne 0 : titre à gauche, cellule vide à droite
-    table_rows.append([Paragraph("Détail du devis :", column_header_style), Paragraph("", detail_style)])
-    # Ligne 1 : Dimensions et Coussins
-    # Générer le descriptif des coussins d'assise en se basant sur les détails de calcul.
-    coussins_descr = ""
-    # Construire un dictionnaire du nombre de coussins par taille (hors coussins déco)
-    cushion_counts = {}
-    if details_list:
-        try:
-            for entry in details_list:
-                if entry.get('category', '').lower() == 'cushion':
-                    item_name = entry.get('item', '').lower()
-                    qty = entry.get('quantity', 0)
-                    # Ignorer les coussins déco
-                    if 'déco' in item_name:
-                        continue
-                    # Déterminer un identifiant de taille : soit une valeur numérique (avant 'cm'), soit 'valise', 'petit modèle' ou 'grand modèle'
-                    parts = item_name.split()
-                    size_label = None
-                    # Chercher une taille numérique
-                    for p in parts:
-                        t = p.replace('cm', '')
-                        if t.isdigit():
-                            size_label = f"{t}cm"
-                            break
-                    # Si aucune taille numérique trouvée, identifier les coussins spéciaux
-                    if size_label is None:
-                        if 'valise' in item_name:
-                            size_label = 'valise'
-                        elif 'petit' in item_name:
-                            size_label = 'petit modèle'
-                        elif 'grand' in item_name:
-                            size_label = 'grand modèle'
-                    if size_label and qty:
-                        cushion_counts[size_label] = cushion_counts.get(size_label, 0) + qty
-        except Exception:
-            pass
-    # Construire la chaîne descriptive si des données sont disponibles
-    if cushion_counts:
-        # Trier les tailles par ordre numérique si possible (ex : 65cm, 80cm, 90cm)
-        import re  # import local pour trier les libellés de coussins
+# Initialiser les variables de session
+if 'type_canape' not in st.session_state:
+    st.session_state.type_canape = "Simple (S)"
+if 'tx' not in st.session_state:
+    st.session_state.tx = 280
+if 'ty' not in st.session_state:
+    st.session_state.ty = 250
+if 'tz' not in st.session_state:
+    st.session_state.tz = 250
+if 'profondeur' not in st.session_state:
+    st.session_state.profondeur = 70
 
-        def _cushion_sort_key(label: str):
-            m = re.match(r'^(\d+(?:\.\d+)?)cm$', label)
-            if m:
-                return (0, float(m.group(1)))
-            return (1, label)
+# En-tête
+st.title("Configurez votre canapé marocain personnalisé")
+st.markdown("Créez votre canapé marocain personnalisé et obtenez un devis instantané")
+st.markdown("---")
 
-        # Identifier si des coussins spéciaux (non numériques) existent
-        total_special = 0
-        for key, qty in cushion_counts.items():
-            if not re.match(r'^(\d+(?:\.\d+)?)cm$', key):
-                total_special += qty
+# Création des onglets avec la nouvelle structure :
+# 1 : Type, 2 : Dimensions, 3 : Structure (anciennement Options),
+# 4 : Coussins, 5 : Mousse (anciennement Matériaux), 6 : Client,
+# 7 : Couleurs.
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "Type", "Dimensions", "Structure", "Coussins", "Mousse", "Client", "Couleurs"
+])
 
-        # Si le type de coussins est valise/p/g et qu'il existe des coussins spéciaux,
-        # afficher simplement « n coussins valises sur mesure ».
-        if total_special > 0 and type_coussins in ['valise', 'p', 'g']:
-            coussins_descr = f"{total_special} coussins valises sur mesure"
+# Onglet 7 : Couleurs
+with tab7:
+    st.markdown("### Choix des couleurs du schéma")
+    st.info(
+        "Par défaut, la structure et les banquettes/mousses sont blanches, tandis que les coussins sont beige clair. "
+        "Vous pouvez personnaliser ces couleurs ci‑dessous."
+    )
+    # Sélecteurs de couleur pour la structure (accoudoirs et dossiers)
+    color_structure_choice = st.selectbox(
+        "Couleur de la structure (accoudoirs et dossiers)",
+        list(COLOR_PALETTE.keys()),
+        index=list(COLOR_PALETTE.keys()).index("Blanc"),
+        key="color_structure_choice",
+        help="Choisissez la couleur des accoudoirs et des dossiers, ou laissez Transparent pour ne pas colorier ces éléments."
+    )
+    # Sélecteur pour la couleur des banquettes/mousses (assise)
+    color_banquette_choice = st.selectbox(
+        "Couleur des banquettes/mousses (assise)",
+        list(COLOR_PALETTE.keys()),
+        index=list(COLOR_PALETTE.keys()).index("Blanc"),
+        key="color_banquette_choice",
+        help="Choisissez la couleur des banquettes/mousses, ou laissez Transparent pour ne pas colorier ces éléments."
+    )
+    # Sélecteur pour la couleur des coussins
+    color_coussins_choice = st.selectbox(
+        "Couleur des coussins",
+        list(COLOR_PALETTE.keys()),
+        index=list(COLOR_PALETTE.keys()).index("Beige clair"),
+        key="color_coussins_choice",
+        help="Choisissez la couleur des coussins. Le choix par défaut est Beige clair."
+    )
+
+# ONGLET 1: TYPE
+with tab1:
+    st.markdown("### Sélectionnez le type de canapé")
+    
+    type_canape = st.selectbox(
+        "Type de canapé",
+        ["Simple (S)", "L - Sans Angle", "L - Avec Angle (LF)", 
+         "U - Sans Angle", "U - 1 Angle (U1F)", "U - 2 Angles (U2F)"],
+        key="type_canape"
+    )
+
+# ONGLET 2: DIMENSIONS
+with tab2:
+    st.markdown("### Dimensions du canapé (en cm)")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if "Simple" in st.session_state.type_canape:
+            tx = st.number_input("Largeur (Tx)", min_value=100, max_value=600, value=280, step=10, key="tx")
+            ty = tz = None
+        elif "L" in st.session_state.type_canape:
+            tx = st.number_input("Largeur bas (Tx)", min_value=100, max_value=600, value=350, step=10, key="tx")
+            ty = st.number_input("Hauteur gauche (Ty)", min_value=100, max_value=600, value=250, step=10, key="ty")
+            tz = None
+        else:  # U
+            tx = st.number_input("Largeur bas (Tx)", min_value=100, max_value=600, value=450, step=10, key="tx")
+            ty = st.number_input("Hauteur gauche (Ty)", min_value=100, max_value=600, value=300, step=10, key="ty")
+            tz = st.number_input("Hauteur droite (Tz)", min_value=100, max_value=600, value=280, step=10, key="tz")
+    
+    with col2:
+        profondeur = st.number_input("Profondeur d'assise", min_value=50, max_value=120, value=70, step=5, key="profondeur")
+
+# ONGLET 3 : STRUCTURE
+with tab3:
+    st.markdown("### Composition de la structure")
+
+    # Deux colonnes pour séparer accoudoirs/dossiers et méridienne
+    col1, col2 = st.columns(2)
+
+    # Colonne gauche : accoudoirs et dossiers
+    with col1:
+        st.markdown("**Accoudoirs**")
+        # Gestion des accoudoirs selon le type de canapé :
+        # Pour les canapés en U (U, U1F, U2F) : uniquement gauche et droite sont visibles et pré-cochés.
+        # L'accoudoir bas n'est pas visible et n'est pas pris en compte dans le schéma/prix.
+        if "U" in st.session_state.type_canape:
+            # Dans le cas des canapés en U : seuls les accoudoirs gauche et droit sont disponibles
+            acc_left = st.checkbox("Accoudoir Gauche", value=True)
+            acc_right = st.checkbox("Accoudoir Droit", value=True)
+            acc_bas = False
+        elif "L" in st.session_state.type_canape:
+            # Pour les canapés en L (avec ou sans angle) : on affiche uniquement l'accoudoir gauche et bas
+            acc_left = st.checkbox("Accoudoir Gauche", value=True)
+            # L'accoudoir droit n'est pas proposé pour les configurations en L
+            acc_right = False
+            acc_bas = st.checkbox("Accoudoir Bas", value=True)
         else:
-            parts = []
-            for size in sorted(cushion_counts.keys(), key=_cushion_sort_key):
-                qty = cushion_counts[size]
-                if re.match(r'^(\d+(?:\.\d+)?)cm$', size):
-                    disp = f"{size[:-2]} cm"
-                    parts.append(f"{qty} x {disp}")
-                else:
-                    # Pour les libellés non numériques restants, utiliser le libellé tel quel
-                    parts.append(f"{qty} x {size}")
-            coussins_descr = ", ".join(parts)
-    else:
-        # Si aucun détail, utiliser le nombre et la taille des coussins saisis
-        if nb_coussins_assise is not None:
-            coussins_descr = f"{nb_coussins_assise} x {taille_coussins}"
+            # Pour les canapés simples : accoudoirs gauche et droit visibles, pas d'accoudoir bas
+            acc_left = st.checkbox("Accoudoir Gauche", value=True)
+            acc_right = st.checkbox("Accoudoir Droit", value=True)
+            acc_bas = False
+
+        st.markdown("**Dossiers**")
+        # Les dossiers sont conservés tels quels : Gauche et Droit visibles selon le type
+        dossier_left = st.checkbox("Dossier Gauche", value=True) if "Simple" not in st.session_state.type_canape else False
+        dossier_bas = st.checkbox("Dossier Bas", value=True)
+        dossier_right = st.checkbox("Dossier Droit", value=True) if ("U" in st.session_state.type_canape) else False
+
+    # Colonne droite : méridienne
+    with col2:
+        st.markdown("**Méridienne**")
+        has_meridienne = st.checkbox("Ajouter une méridienne", value=False)
+
+        if has_meridienne:
+            meridienne_side = st.selectbox(
+                "Position de la méridienne",
+                ["left", "right"],
+                format_func=lambda x: "Gauche" if x == "left" else "Droite"
+            )
+            # Par défaut, longueur 50cm si la méridienne est activée
+            # Valeur par défaut 50 cm, et minimum 50 cm pour éviter une erreur StreamlitValueBelowMinError
+            meridienne_len = st.number_input("Longueur (cm)", min_value=50, max_value=200, value=50, step=10)
         else:
-            coussins_descr = "-"
-    # Si modèle valise/p/g et description spéciale (par exemple « 6 coussins valises sur mesure »),
-    # on affiche directement la description sans préfixe
-    if type_coussins in ['valise', 'p', 'g'] and coussins_descr.endswith("sur mesure"):
-        right_coussins = Paragraph(coussins_descr, detail_style)
-    else:
-        right_coussins = Paragraph(f"{coussins_label} : {coussins_descr}", detail_style)
-    table_rows.append([Paragraph(f"Dimensions : {dim_str} cm", detail_style), right_coussins])
-    # Ligne 2 : Mousse et éventuels traversins, coussins déco ou surmatelas
-    # Construire le contenu de la colonne de droite : concaténer les lignes non vides avec des sauts de ligne
-    extra_lines = []
-    if traversins_line:
-        extra_lines.append(traversins_line)
-    if deco_line:
-        extra_lines.append(deco_line)
-    if surmatelas_line:
-        extra_lines.append(surmatelas_line)
-    right_second_cell_content = "<br/>".join(extra_lines) if extra_lines else ""
-    table_rows.append([
-        Paragraph(f"Mousse : {mousse_type}", detail_style),
-        Paragraph(right_second_cell_content, detail_style)
-    ])
-    # Ligne 3 : Accoudoirs et Réduction
-    table_rows.append([Paragraph(f"Accoudoirs : {acc_txt}", detail_style), Paragraph(f"Réduction : {reduction_ttc_val:.2f} €", detail_style)])
-    # Ligne 4 : Dossiers et Prix final
-    table_rows.append([Paragraph(f"Dossiers : {dossier_txt}", detail_style), Paragraph(f"Prix canapé d'angle : <b>{montant_ttc}</b>", detail_style)])
-    # Ligne 5 : Profondeur et Prix avant réduction
-    # Affichage de la profondeur issue de la configuration sans précision « d'assise »
-    profondeur_val = dims.get('profondeur', 0)
-    table_rows.append([Paragraph(f"Profondeur : {profondeur_val}cm", detail_style), Paragraph(f"Prix avant réduction : {prix_avant_reduc}", detail_style)])
-    devis_table = Table(table_rows, colWidths=[9.5 * cm, 9.5 * cm])
-    devis_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-    ]))
-    elements.append(devis_table)
+            meridienne_side = "left"
+            meridienne_len = 0
 
-    # Préparer les données détaillées pour le prix et le coût de revient
-    calculation_details = prix_details.get('calculation_details', None)
-    cr_details = prix_details.get('calculation_details_cr', None)
+        # fin de la colonne méridienne
 
-    # Gestion conditionnelle des pages 2 et 3 en fonction des options
-    if show_detail_devis:
-        # Priorité à la liste complète de détails
-        if calculation_details:
-            elements.append(PageBreak())
-            elements.append(Paragraph("Détail des calculs du prix", title_style))
-            elements.append(Spacer(1, 0.3 * cm))
-            # Créer un tableau avec colonnes : Catégorie, Article, Quantité, Prix unitaire, Formule, Total
-            table_data = []
-            # En-têtes
-            table_data.append([
-                Paragraph('<b>Catégorie</b>', styles['Normal']),
-                Paragraph('<b>Article</b>', styles['Normal']),
-                Paragraph('<b>Qté</b>', styles['Normal']),
-                Paragraph('<b>Prix unitaire</b>', styles['Normal']),
-                Paragraph('<b>Formule</b>', styles['Normal']),
-                Paragraph('<b>Total</b>', styles['Normal'])
-            ])
-            # Rows for each calculation detail
-            for entry in calculation_details:
-                cat = entry.get('category', '')
-                item = entry.get('item', '')
-                qty = entry.get('quantity', '')
-                unit = entry.get('unit_price', '')
-                formula = entry.get('formula', '')
-                total = entry.get('total_price', '')
-                # Ensure floats are formatted with 2 decimals
-                if isinstance(unit, (int, float)):
-                    unit = f"{unit:.2f} €"
-                if isinstance(total, (int, float)):
-                    total = f"{total:.2f} €"
-                table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-            # Append summary totals at the end
-            table_data.append([
-                Paragraph('<b>Total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('prix_ht', 0.0):.2f} €"
-            ])
-            table_data.append([
-                Paragraph('<b>TVA (20 %)</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('tva', 0.0):.2f} €"
-            ])
-            table_data.append([
-                Paragraph('<b>Total TTC</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('total_ttc', 0.0):.2f} €"
-            ])
-            # Define column widths (6 columns)
-            col_widths = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-            detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
-            detail_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                ('ALIGN', (2, 1), (2, -1), 'CENTER'),  # quantity column
-                ('ALIGN', (3, 1), (3, -1), 'RIGHT'),  # unit price column
-                ('ALIGN', (5, 1), (5, -1), 'RIGHT'),  # total column
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ]))
-            elements.append(detail_table)
+# ONGLET 4 : COUSSINS
+with tab4:
+    st.markdown("### Composition des coussins")
+    
+    # Les éléments liés aux coussins étaient auparavant dans les options ; ils sont déplacés ici.
+    type_coussins = st.selectbox(
+        "Type de coussins",
+        ["auto", "65", "80", "90", "80-90", "valise", "p", "g"],
+        help="Auto = optimisation automatique, 80-90 = optimisation par côté entre 80 et 90 cm"
+    )
 
-            # Si on souhaite également voir le coût de revient, on l'ajoute sur une page suivante
-            if show_detail_cr and cr_details:
-                elements.append(PageBreak())
-                elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
-                elements.append(Spacer(1, 0.3 * cm))
-                cr_table_data = []
-                cr_table_data.append([
-                    Paragraph('<b>Catégorie</b>', styles['Normal']),
-                    Paragraph('<b>Article</b>', styles['Normal']),
-                    Paragraph('<b>Qté</b>', styles['Normal']),
-                    Paragraph('<b>Coût unitaire</b>', styles['Normal']),
-                    Paragraph('<b>Formule</b>', styles['Normal']),
-                    Paragraph('<b>Total</b>', styles['Normal'])
-                ])
-                for entry in cr_details:
-                    cat = entry.get('category', '')
-                    item = entry.get('item', '')
-                    qty = entry.get('quantity', '')
-                    unit = entry.get('unit_price', '')
-                    formula = entry.get('formula', '')
-                    total = entry.get('total_price', '')
-                    if isinstance(unit, (int, float)):
-                        unit = f"{unit:.2f} €"
-                    if isinstance(total, (int, float)):
-                        total = f"{total:.2f} €"
-                    cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-                cr_table_data.append([
-                    Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
-                ])
-                if 'marge_ht' in prix_details:
-                    cr_table_data.append([
-                        Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
-                    ])
-                cr_col_widths = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-                cr_detail_table = Table(cr_table_data, colWidths=cr_col_widths, repeatRows=1)
-                cr_detail_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                    ('ALIGN', (2, 1), (2, -1), 'CENTER'),
-                    ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
-                    ('ALIGN', (5, 1), (5, -1), 'RIGHT'),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                    ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ]))
-                elements.append(cr_detail_table)
+    nb_coussins_deco = st.number_input("Coussins décoratifs", min_value=0, max_value=10, value=0)
+    nb_traversins_supp = st.number_input("Traversins supplémentaires", min_value=0, max_value=5, value=0)
+    # Permettre à l'utilisateur de choisir l'emplacement des traversins lorsqu'il en ajoute.
+    # On détermine les positions autorisées selon la forme du canapé :
+    #  - Simple : gauche/droite
+    #  - L (LF/LNF) : gauche/bas
+    #  - U : gauche/droite/bas (le bas est parfois inopérant selon la variante)
+    traversins_positions = []
+    if nb_traversins_supp > 0:
+        if "Simple" in st.session_state.type_canape:
+            trav_options = ["Gauche", "Droite"]
+        elif "L" in st.session_state.type_canape:
+            trav_options = ["Gauche", "Bas"]
         else:
-            # Aucune liste complète mais des totaux disponibles : créer une page simple
-            if any(k in prix_details for k in ['foam_total', 'fabric_total', 'support_total', 'cushion_total', 'traversin_total', 'surmatelas_total']):
-                elements.append(PageBreak())
-                elements.append(Paragraph("Détail des calculs du prix", title_style))
-                elements.append(Spacer(1, 0.3 * cm))
-                detail_rows = []
-                if 'foam_total' in prix_details:
-                    detail_rows.append(["Mousse", f"{prix_details['foam_total']:.2f} €"])
-                if 'fabric_total' in prix_details:
-                    detail_rows.append(["Tissu", f"{prix_details['fabric_total']:.2f} €"])
-                if 'support_total' in prix_details:
-                    detail_rows.append(["Supports (banquettes, angles, dossiers)", f"{prix_details['support_total']:.2f} €"])
-                if 'cushion_total' in prix_details:
-                    detail_rows.append(["Coussins (assise & déco)", f"{prix_details['cushion_total']:.2f} €"])
-                if 'traversin_total' in prix_details:
-                    detail_rows.append(["Traversins", f"{prix_details['traversin_total']:.2f} €"])
-                if 'surmatelas_total' in prix_details:
-                    detail_rows.append(["Surmatelas", f"{prix_details['surmatelas_total']:.2f} €"])
-                detail_rows.append(["Total HT", f"{prix_details.get('prix_ht', 0.0):.2f} €"])
-                detail_rows.append(["TVA (20 %)", f"{prix_details.get('tva', 0.0):.2f} €"])
-                detail_rows.append(["Total TTC", f"{prix_details.get('total_ttc', 0.0):.2f} €"])
-                col_widths_simple = [10 * cm, 8 * cm]
-                detail_table_simple = Table(detail_rows, colWidths=col_widths_simple)
-                detail_table_simple.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                    ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                    ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ]))
-                elements.append(detail_table_simple)
-                # Ajouter ensuite la page de coût de revient si demandée
-                if show_detail_cr and cr_details:
-                    elements.append(PageBreak())
-                    elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
-                    elements.append(Spacer(1, 0.3 * cm))
-                    cr_table_data = []
-                    cr_table_data.append([
-                        Paragraph('<b>Catégorie</b>', styles['Normal']),
-                        Paragraph('<b>Article</b>', styles['Normal']),
-                        Paragraph('<b>Qté</b>', styles['Normal']),
-                        Paragraph('<b>Coût unitaire</b>', styles['Normal']),
-                        Paragraph('<b>Formule</b>', styles['Normal']),
-                        Paragraph('<b>Total</b>', styles['Normal'])
-                    ])
-                    for entry in cr_details:
-                        cat = entry.get('category', '')
-                        item = entry.get('item', '')
-                        qty = entry.get('quantity', '')
-                        unit = entry.get('unit_price', '')
-                        formula = entry.get('formula', '')
-                        total = entry.get('total_price', '')
-                        if isinstance(unit, (int, float)):
-                            unit = f"{unit:.2f} €"
-                        if isinstance(total, (int, float)):
-                            total = f"{total:.2f} €"
-                        cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-                    cr_table_data.append([
-                        Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
-                    ])
-                    if 'marge_ht' in prix_details:
-                        cr_table_data.append([
-                            Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
-                        ])
-                    cr_col_widths_simple = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-                    cr_detail_table_simple = Table(cr_table_data, colWidths=cr_col_widths_simple, repeatRows=1)
-                    cr_detail_table_simple.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                        ('ALIGN', (2, 1), (2, -1), 'CENTER'),
-                        ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
-                        ('ALIGN', (5, 1), (5, -1), 'RIGHT'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                        ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                        ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                        ('FONTSIZE', (0, 0), (-1, -1), 9),
-                    ]))
-                    elements.append(cr_detail_table_simple)
-            else:
-                # Pas de détails ni de totaux à afficher, mais on peut quand même afficher le coût de revient si demandé
-                if show_detail_cr and cr_details:
-                    elements.append(PageBreak())
-                    elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
-                    elements.append(Spacer(1, 0.3 * cm))
-                    cr_table_data = []
-                    cr_table_data.append([
-                        Paragraph('<b>Catégorie</b>', styles['Normal']),
-                        Paragraph('<b>Article</b>', styles['Normal']),
-                        Paragraph('<b>Qté</b>', styles['Normal']),
-                        Paragraph('<b>Coût unitaire</b>', styles['Normal']),
-                        Paragraph('<b>Formule</b>', styles['Normal']),
-                        Paragraph('<b>Total</b>', styles['Normal'])
-                    ])
-                    for entry in cr_details:
-                        cat = entry.get('category', '')
-                        item = entry.get('item', '')
-                        qty = entry.get('quantity', '')
-                        unit = entry.get('unit_price', '')
-                        formula = entry.get('formula', '')
-                        total = entry.get('total_price', '')
-                        if isinstance(unit, (int, float)):
-                            unit = f"{unit:.2f} €"
-                        if isinstance(total, (int, float)):
-                            total = f"{total:.2f} €"
-                        cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-                    cr_table_data.append([
-                        Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
-                    ])
-                    if 'marge_ht' in prix_details:
-                        cr_table_data.append([
-                            Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
-                        ])
-                    cr_col_widths_only = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-                    cr_detail_table_only = Table(cr_table_data, colWidths=cr_col_widths_only, repeatRows=1)
-                    cr_detail_table_only.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                        ('ALIGN', (2, 1), (2, -1), 'CENTER'),
-                        ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
-                        ('ALIGN', (5, 1), (5, -1), 'RIGHT'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                        ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                        ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                        ('FONTSIZE', (0, 0), (-1, -1), 9),
-                    ]))
-                    elements.append(cr_detail_table_only)
-    else:
-        # Ne pas afficher le détail du prix ; seulement, si demandé, afficher le coût de revient
-        if show_detail_cr and cr_details:
-            elements.append(PageBreak())
-            elements.append(Paragraph("Détail des calculs du coût de revient", title_style))
-            elements.append(Spacer(1, 0.3 * cm))
-            cr_table_data = []
-            cr_table_data.append([
-                Paragraph('<b>Catégorie</b>', styles['Normal']),
-                Paragraph('<b>Article</b>', styles['Normal']),
-                Paragraph('<b>Qté</b>', styles['Normal']),
-                Paragraph('<b>Coût unitaire</b>', styles['Normal']),
-                Paragraph('<b>Formule</b>', styles['Normal']),
-                Paragraph('<b>Total</b>', styles['Normal'])
-            ])
-            for entry in cr_details:
-                cat = entry.get('category', '')
-                item = entry.get('item', '')
-                qty = entry.get('quantity', '')
-                unit = entry.get('unit_price', '')
-                formula = entry.get('formula', '')
-                total = entry.get('total_price', '')
-                if isinstance(unit, (int, float)):
-                    unit = f"{unit:.2f} €"
-                if isinstance(total, (int, float)):
-                    total = f"{total:.2f} €"
-                cr_table_data.append([cat.capitalize(), item, qty, unit, formula, total])
-            cr_table_data.append([
-                Paragraph('<b>Coût de revient total HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('cout_revient_ht', 0.0):.2f} €"
-            ])
-            if 'marge_ht' in prix_details:
-                cr_table_data.append([
-                    Paragraph('<b>Marge totale HT</b>', styles['Normal']), '', '', '', '', f"{prix_details.get('marge_ht', 0.0):.2f} €"
-                ])
-            cr_col_widths_only2 = [3.0 * cm, 5.0 * cm, 1.5 * cm, 3.0 * cm, 4.5 * cm, 3.0 * cm]
-            cr_detail_table_only2 = Table(cr_table_data, colWidths=cr_col_widths_only2, repeatRows=1)
-            cr_detail_table_only2.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-                ('ALIGN', (2, 1), (2, -1), 'CENTER'),
-                ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
-                ('ALIGN', (5, 1), (5, -1), 'RIGHT'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
-                ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
-                ('FONTNAME', (0, 0), (-1, -1), BASE_FONT),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ]))
-            elements.append(cr_detail_table_only2)
+            trav_options = ["Gauche", "Droite", "Bas"]
+        traversins_positions = st.multiselect(
+            "Position des traversins",
+            trav_options,
+            default=trav_options,
+            help="Sélectionnez où placer les traversins supplémentaires"
+        )
+    has_surmatelas = st.checkbox("Surmatelas")
 
-    # Construction du document PDF : toutes les pages assemblées, avec pied de page sur chacune
-    doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
-    buffer.seek(0)
-    return buffer
+# ONGLET 5 : MOUSSE
+with tab5:
+    st.markdown("### Paramètres de la mousse")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        type_mousse = st.selectbox("Type de mousse", ["D25", "D30", "HR35", "HR45"])
+        epaisseur = st.number_input("Épaisseur (cm)", min_value=15, max_value=35, value=25, step=5)
+        # Ajout de l'option arrondis (par défaut cochée) permettant de majorer le prix de 20€ par banquette et par banquette d'angle
+        arrondis = st.checkbox("Arrondis (bords arrondis)", value=True)
+    
+    with col2:
+        st.info("Les options de tissus seront affichées après validation de la configuration")
+
+# ONGLET 6 : CLIENT
+with tab6:
+    st.markdown("### Informations Client")
+    st.markdown("Renseignez les coordonnées du client pour finaliser le devis")
+    
+    col_client1, col_client2 = st.columns(2)
+    
+    with col_client1:
+        # Le nom du client n'est plus obligatoire : on retire l'astérisque et on laisse le champ facultatif
+        nom_client = st.text_input("Nom du client", placeholder="Entrez le nom du client")
+        telephone_client = st.text_input("N° de téléphone", placeholder="06 12 34 56 78")
+    
+    with col_client2:
+        email_client = st.text_input("Email (optionnel)", placeholder="client@example.com")
+        departement_client = st.text_input("Département", placeholder="Ex: Nord (59)")
+    
+    if email_client:
+        st.info("L'email permet d'envoyer le devis au client")
+
+    # Champ de réduction TTC (optionnel)
+    reduction_ttc = st.number_input(
+        "Réduction (TTC €)",
+        min_value=0.0,
+        value=0.0,
+        step=10.0,
+        help="Saisissez une réduction en euros TTC qui sera appliquée au total."
+    )
+    # Enregistrer la réduction dans la session pour qu'elle soit accessible lors du calcul du devis
+    st.session_state['reduction_ttc'] = reduction_ttc
+
+    # Options pour afficher ou non les pages détaillées du devis et du coût de revient dans le PDF
+    show_detail_devis = st.checkbox(
+        "Afficher le détail du devis (page 2)",
+        value=False,
+        help="Lorsque cette option est cochée, la page 2 du PDF affichera le tableau complet des calculs du prix."
+    )
+    show_detail_cr = st.checkbox(
+        "Afficher le détail du coût de revient (page 3)",
+        value=False,
+        help="Lorsque cette option est cochée, la page 3 du PDF affichera le tableau complet des calculs du coût de revient."
+    )
+
+    # Stocker les choix dans la session pour les utiliser lors de la génération du PDF
+    st.session_state['show_detail_devis'] = show_detail_devis
+    st.session_state['show_detail_cr'] = show_detail_cr
+
+    st.markdown("---")
+    st.markdown("### Actions")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("👁️ Générer l'Aperçu", use_container_width=True):
+            with st.spinner("Génération du schéma en cours..."):
+                try:
+                    # Préparer le dictionnaire de couleurs à partir des choix de l'utilisateur
+                    try:
+                        struct_choice = st.session_state.get('color_structure_choice')
+                    except Exception:
+                        struct_choice = None
+                    try:
+                        banq_choice = st.session_state.get('color_banquette_choice')
+                    except Exception:
+                        banq_choice = None
+                    try:
+                        cous_choice = st.session_state.get('color_coussins_choice')
+                    except Exception:
+                        cous_choice = None
+                    # Construire la palette de couleurs pour le schéma.  Si la couleur de la structure
+                    # (accoudoirs/dossiers) est "Transparent", on utilise une chaîne vide pour accoudoirs
+                    # et dossiers afin d'éviter un éclaircissement par défaut dans canapematplot.
+                    struct_val = COLOR_PALETTE.get(struct_choice)
+                    if struct_val is None:
+                        acc_val = ""
+                        dos_val = ""
+                    else:
+                        acc_val = struct_val
+                        dos_val = struct_val
+                    ass_val = COLOR_PALETTE.get(banq_choice)
+                    ass_val = ass_val if ass_val is not None else None
+                    cous_val = COLOR_PALETTE.get(cous_choice)
+                    couleurs = {
+                        'accoudoirs': acc_val,
+                        'dossiers': dos_val,
+                        'assise': ass_val,
+                        'coussins': cous_val,
+                    }
+
+                    # Générer le schéma avec les paramètres actuels
+                    fig = generer_schema_canape(
+                        type_canape=st.session_state.type_canape,
+                        tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
+                        profondeur=st.session_state.profondeur,
+                        acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
+                        dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
+                        meridienne_side=meridienne_side, meridienne_len=meridienne_len,
+                        coussins=type_coussins,
+                        nb_traversins_supp=nb_traversins_supp,
+                        traversins_positions=traversins_positions,
+                        couleurs=couleurs
+                    )
+
+                    # Préparer une fonction utilitaire pour calculer les prix HT
+                    base_params = {
+                        'type_canape': st.session_state.type_canape,
+                        'tx': st.session_state.tx, 'ty': st.session_state.ty, 'tz': st.session_state.tz,
+                        'profondeur': st.session_state.profondeur,
+                        'type_coussins': type_coussins,
+                        'type_mousse': type_mousse, 'epaisseur': epaisseur,
+                        'acc_left': acc_left, 'acc_right': acc_right, 'acc_bas': acc_bas,
+                        'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
+                        'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_effectif,
+                        'has_surmatelas': has_surmatelas,
+                        'has_meridienne': has_meridienne
+                    }
+                    def price_ht_for(update_dict):
+                        params = base_params.copy()
+                        params.update(update_dict)
+                        return calculer_prix_total(**params)['prix_ht']
+
+                    # Déterminer le nombre de banquettes et d'angles
+                    nb_banquettes, nb_angles = 0, 0
+                    tc = st.session_state.type_canape
+                    if "Simple" in tc:
+                        nb_banquettes, nb_angles = 1, 0
+                    elif "L - Sans Angle" in tc:
+                        nb_banquettes, nb_angles = 2, 0
+                    elif "L - Avec Angle" in tc:
+                        nb_banquettes, nb_angles = 2, 1
+                    elif "U - Sans Angle" in tc:
+                        nb_banquettes, nb_angles = 3, 0
+                    elif "U - 1 Angle" in tc:
+                        nb_banquettes, nb_angles = 3, 1
+                    elif "U - 2 Angles" in tc:
+                        nb_banquettes, nb_angles = 3, 2
+
+                    # Prix de base (banquettes seules avec mousse de base D25 et sans options)
+                    alt_no_extras_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': 'auto', 'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+
+                    # Prix avec accoudoirs uniquement (mousse base)
+                    alt_with_acc_ht = price_ht_for({
+                        'acc_left': acc_left, 'acc_right': acc_right, 'acc_bas': acc_bas,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': 'auto', 'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_acc = max(0, alt_with_acc_ht - alt_no_extras_ht)
+
+                    # Prix avec dossiers uniquement (mousse base)
+                    alt_with_dossier_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
+                        'type_coussins': 'auto', 'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_dossiers = max(0, alt_with_dossier_ht - alt_no_extras_ht)
+
+                    # Prix avec mousse sélectionnée (sans autres options)
+                    alt_with_mousse_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': 'auto', 'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': type_mousse
+                    })
+                    price_mousse = max(0, alt_with_mousse_ht - alt_no_extras_ht)
+
+                    # Prix des coussins (assise + déco + traversins + surmatelas) avec mousse base
+                    alt_with_coussins_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins, 'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_supp, 'has_surmatelas': has_surmatelas,
+                        'type_mousse': 'D25'
+                    })
+                    price_coussins_total = max(0, alt_with_coussins_ht - alt_no_extras_ht)
+
+                    # Total hors arrondis (base + options)
+                    prix_ht_sans_arrondis = alt_no_extras_ht + price_acc + price_dossiers + price_mousse + price_coussins_total
+
+                    # Calcul complet du devis via le module de pricing (inclut arrondis)
+                    prix_details_full = calculer_prix_total(
+                        type_canape=st.session_state.type_canape,
+                        tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
+                        profondeur=st.session_state.profondeur,
+                        type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
+                        acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
+                        dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
+                        arrondis=arrondis
+                    )
+                    # Récupération des totaux HT et TTC
+                    prix_ht_total = prix_details_full.get('prix_ht', 0.0)
+                    prix_ttc_total_avant_remise = prix_details_full.get('total_ttc', 0.0)
+
+                    # Récupération de la remise
+                    reduction_ttc = st.session_state.get('reduction_ttc', 0.0) or 0.0
+                    reduction_ht = reduction_ttc / 1.20 if reduction_ttc else 0.0
+
+                    prix_ht_apres_remise = max(0, prix_ht_total - reduction_ht)
+                    tva_apres_remise = round(prix_ht_apres_remise * 0.20, 2)
+                    total_ttc_apres_remise = round(prix_ht_apres_remise + tva_apres_remise, 2)
+
+                    # Montant TTC des arrondis pour l'affichage dans le récapitulatif
+                    # On récupère le montant TTC directement depuis le module de pricing
+                    suppl_arrondis_ttc = prix_details_full.get('arrondis_total', 0.0)
+
+                    # Quantités
+                    nb_acc_selected = int(acc_left) + int(acc_right) + int(acc_bas)
+                    nb_dossier_selected = int(dossier_left) + int(dossier_bas) + int(dossier_right)
+
+                    # Nombre de coussins d'assise (approximation si dimension numérique)
+                    nb_coussins_assise = 0
+                    try:
+                        couss_dim = int(type_coussins)
+                        bench_lengths = []
+                        if "Simple" in tc:
+                            bench_lengths = [st.session_state.tx]
+                        elif "L" in tc:
+                            bench_lengths = [st.session_state.ty, st.session_state.tx]
+                        else:
+                            bench_lengths = [st.session_state.ty, st.session_state.tx, st.session_state.tz]
+                        import math
+                        for lng in bench_lengths:
+                            nb_coussins_assise += math.ceil(lng / couss_dim)
+                    except Exception:
+                        nb_coussins_assise = 0
+
+                    nb_arrondis_units = nb_banquettes + nb_angles
+
+                    # Construction détaillée du tableau de synthèse
+                    # Prix des coussins par catégorie
+                    # Prix des coussins d'assise uniquement (hors déco/traversins/surmatelas)
+                    alt_only_assise_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins,
+                        'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_assise = max(0, alt_only_assise_ht - alt_no_extras_ht)
+
+                    # Prix avec coussins déco ajoutés
+                    alt_assise_deco_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins,
+                        'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': 0, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_decoratif = max(0, alt_assise_deco_ht - alt_only_assise_ht)
+
+                    # Prix avec traversins supplémentaires
+                    alt_assise_traversins_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins,
+                        'nb_coussins_deco': 0, 'nb_traversins_supp': nb_traversins_supp, 'has_surmatelas': False,
+                        'type_mousse': 'D25'
+                    })
+                    price_traversins = max(0, alt_assise_traversins_ht - alt_only_assise_ht)
+
+                    # Prix avec surmatelas
+                    alt_assise_surmatelas_ht = price_ht_for({
+                        'acc_left': False, 'acc_right': False, 'acc_bas': False,
+                        'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
+                        'type_coussins': type_coussins,
+                        'nb_coussins_deco': 0, 'nb_traversins_supp': 0, 'has_surmatelas': True,
+                        'type_mousse': 'D25'
+                    }) if has_surmatelas else alt_only_assise_ht
+                    price_surmatelas = max(0, alt_assise_surmatelas_ht - alt_only_assise_ht) if has_surmatelas else 0
+
+                    # Répartition du prix de la mousse par banquette (proportionnelle à la longueur)
+                    bench_lengths = []
+                    if "Simple" in tc:
+                        bench_lengths = [st.session_state.tx]
+                    elif "L" in tc:
+                        bench_lengths = [st.session_state.ty, st.session_state.tx]
+                    else:
+                        bench_lengths = [st.session_state.ty, st.session_state.tx, st.session_state.tz]
+                    total_length = sum(bench_lengths) if bench_lengths else 1
+                    price_mousse_per_bench = []
+                    for bl in bench_lengths:
+                        part = (price_mousse * bl / total_length) if total_length > 0 else 0
+                        price_mousse_per_bench.append(part)
+
+                    breakdown_rows = []
+                    # Banquettes de base
+                    breakdown_rows.append(("Banquettes", nb_banquettes, f"{alt_no_extras_ht:.2f} €"))
+                    # Accoudoirs
+                    breakdown_rows.append(("Accoudoirs", nb_acc_selected, f"{price_acc:.2f} €"))
+                    # Coussins d'assise
+                    breakdown_rows.append(("Coussins assise", nb_coussins_assise, f"{price_assise:.2f} €"))
+                    # Coussins décoratifs
+                    breakdown_rows.append(("Coussins déco", nb_coussins_deco, f"{price_decoratif:.2f} €"))
+                    # Traversins supplémentaires
+                    breakdown_rows.append(("Traversins", nb_traversins_supp, f"{price_traversins:.2f} €"))
+                    # Surmatelas
+                    # Déterminer le nombre de surmatelas en se basant sur le total TTC renvoyé par
+                    # ``calculer_prix_total``.  Lorsque l'option surmatelas est activée, la fonction
+                    # de pricing ajoute un surmatelas par mousse (dimension) et renvoie un total TTC
+                    # égal à 80 € par unité.  On divise donc ce total par 80 pour obtenir la quantité.
+                    surmatelas_total_ttc = prix_details_full.get('surmatelas_total', 0.0)
+                    nb_surmatelas_units = int(round(surmatelas_total_ttc / 80.0)) if has_surmatelas else 0
+                    breakdown_rows.append(("Surmatelas", nb_surmatelas_units, f"{price_surmatelas:.2f} €"))
+                    # Dossiers
+                    breakdown_rows.append(("Dossiers", nb_dossier_selected, f"{price_dossiers:.2f} €"))
+                    # Mousse par banquette
+                    for idx, part_price in enumerate(price_mousse_per_bench, start=1):
+                        # Libellé de la dimension : on utilise l'indice de la banquette pour différencier
+                        breakdown_rows.append((f"Mousse {type_mousse} dim.{idx}", 1, f"{part_price:.2f} €"))
+                    # Arrondis
+                    # Utiliser le montant TTC récupéré dans prix_details_full pour l'affichage
+                    breakdown_rows.append(("Arrondis", nb_arrondis_units, f"{suppl_arrondis_ttc:.2f} €"))
+                    # Tissu (inclus)
+                    breakdown_rows.append(("Tissu (inclus)", "", "0.00 €"))
+                    # Remise
+                    if reduction_ttc and reduction_ttc > 0:
+                        breakdown_rows.append(("Remise", "", f"-{reduction_ttc:.2f} €"))
+                    # Livraison
+                    breakdown_rows.append(("Livraison bas d'immeuble/maison", "", "Gratuit"))
+                    # Total TTC après remise
+                    breakdown_rows.append(("Total TTC", "", f"{total_ttc_apres_remise:.2f} €"))
+
+                    # Calcul du prix TTC total avant remise (conversion du HT en TTC)
+                    prix_ttc_total_avant_remise = round(prix_ht_total * 1.20, 2)
+                    # On calcule à nouveau le coût de revient pour intégrer correctement les arrondis
+                    prix_details_calc = calculer_prix_total(
+                        type_canape=st.session_state.type_canape,
+                        tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
+                        profondeur=st.session_state.profondeur,
+                        type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
+                        acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
+                        dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
+                        arrondis=arrondis
+                    )
+                    cout_revient_ht_total = prix_details_calc.get('cout_revient_ht', 0.0)
+                    # Marge totale HT = (prix TTC après remise converti en HT) - coût de revient HT
+                    marge_totale_ht = round((total_ttc_apres_remise / 1.20) - cout_revient_ht_total, 2)
+
+                    # Affichage du schéma et d'un résumé simplifié du devis
+                    st.success("✅ Schéma généré avec succès !")
+                    st.pyplot(fig)
+                    plt.close()
+                    st.markdown("### 🧾 Résumé du devis", unsafe_allow_html=True)
+                    st.markdown(f"**Prix de vente TTC total avant réduction :** {prix_ttc_total_avant_remise:.2f} €")
+                    if reduction_ttc and reduction_ttc > 0:
+                        st.markdown(f"**Réduction TTC :** -{reduction_ttc:.2f} €")
+                    st.markdown(f"**Prix de vente TTC total après réduction :** {total_ttc_apres_remise:.2f} €")
+                    st.markdown(f"**Marge totale HT :** {marge_totale_ht:.2f} €")
+
+                    # Stockage des valeurs pour utilisation lors de la génération du PDF
+                    st.session_state['breakdown_rows'] = breakdown_rows
+                    st.session_state['prix_ht'] = prix_ht_apres_remise
+                    st.session_state['tva'] = tva_apres_remise
+                    st.session_state['total_ttc'] = total_ttc_apres_remise
+                    st.session_state['remise_ttc'] = reduction_ttc
+
+                except Exception as e:
+                    st.error(f"❌ Erreur : {str(e)}")
+
+    with col2:
+        # Suppression de l'obligation de renseigner un nom : le PDF peut être généré sans nom
+        if st.button("📄 Générer le Devis PDF", type="primary", use_container_width=True):
+            with st.spinner("Création du PDF en cours..."):
+                try:
+                    # Préparer le dictionnaire de couleurs à partir des choix de l'utilisateur pour le schéma PDF
+                    try:
+                        struct_choice = st.session_state.get('color_structure_choice')
+                    except Exception:
+                        struct_choice = None
+                    try:
+                        banq_choice = st.session_state.get('color_banquette_choice')
+                    except Exception:
+                        banq_choice = None
+                    try:
+                        cous_choice = st.session_state.get('color_coussins_choice')
+                    except Exception:
+                        cous_choice = None
+                    # Construire la palette de couleurs pour le schéma PDF.
+                    struct_val = COLOR_PALETTE.get(struct_choice)
+                    if struct_val is None:
+                        acc_val = ""
+                        dos_val = ""
+                    else:
+                        acc_val = struct_val
+                        dos_val = struct_val
+                    ass_val = COLOR_PALETTE.get(banq_choice)
+                    ass_val = ass_val if ass_val is not None else None
+                    cous_val = COLOR_PALETTE.get(cous_choice)
+                    couleurs = {
+                        'accoudoirs': acc_val,
+                        'dossiers': dos_val,
+                        'assise': ass_val,
+                        'coussins': cous_val,
+                    }
+                    fig = generer_schema_canape(
+                        type_canape=st.session_state.type_canape,
+                        tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
+                        profondeur=st.session_state.profondeur,
+                        acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
+                        dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
+                        meridienne_side=meridienne_side, meridienne_len=meridienne_len,
+                        coussins=type_coussins,
+                        # Utiliser nb_traversins_effectif pour refléter les positions sélectionnées dans le schéma PDF
+                        nb_traversins_supp=nb_traversins_effectif,
+                        traversins_positions=traversins_positions,
+                        couleurs=couleurs
+                    )
+                    
+                    img_buffer = BytesIO()
+                    fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
+                    img_buffer.seek(0)
+                    plt.close(fig)
+                    
+                    config = {
+                        'type_canape': st.session_state.type_canape,
+                        'dimensions': {'tx': st.session_state.tx, 'ty': st.session_state.ty, 'tz': st.session_state.tz, 'profondeur': st.session_state.profondeur},
+                        'options': {
+                            'acc_left': acc_left, 'acc_right': acc_right, 'acc_bas': acc_bas,
+                            'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
+                            'meridienne_side': meridienne_side, 'meridienne_len': meridienne_len,
+                            'type_coussins': type_coussins, 'type_mousse': type_mousse, 'epaisseur': epaisseur,
+                            'arrondis': arrondis
+                        },
+                        'client': {'nom': nom_client, 'email': email_client, 'telephone': telephone_client, 'departement': departement_client}
+                    }
+                    
+                    prix_details = calculer_prix_total(
+                        type_canape=st.session_state.type_canape,
+                        tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
+                        profondeur=st.session_state.profondeur,
+                        type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
+                        acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
+                        dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
+                        arrondis=arrondis
+                    )
+                    # Le supplément d'arrondis est maintenant intégré dans calculer_prix_total via le paramètre arrondis
+
+                    # Application de la réduction TTC si elle existe
+                    reduction_ttc = st.session_state.get('reduction_ttc', 0.0) or 0.0
+                    if reduction_ttc and reduction_ttc > 0:
+                        reduction_ht = reduction_ttc / 1.20
+                        prix_details['prix_ht'] = max(0, prix_details['prix_ht'] - reduction_ht)
+                        prix_details['tva'] = round(prix_details['prix_ht'] * 0.20, 2)
+                        prix_details['total_ttc'] = round(prix_details['prix_ht'] + prix_details['tva'], 2)
+                        prix_details['reduction_ttc'] = reduction_ttc
+                    else:
+                        prix_details['reduction_ttc'] = 0.0
+
+                    # Récupération du tableau détaillé du devis depuis la session
+                    breakdown_rows = st.session_state.get('breakdown_rows', None)
+                    
+                    pdf_buffer = generer_pdf_devis(
+                        config,
+                        prix_details,
+                        schema_image=img_buffer,
+                        breakdown_rows=breakdown_rows,
+                        reduction_ttc=prix_details.get('reduction_ttc', 0.0),
+                        show_detail_devis=st.session_state.get('show_detail_devis', False),
+                        show_detail_cr=st.session_state.get('show_detail_cr', False)
+                    )
+                    
+                    st.download_button(
+                        label="⬇️ Télécharger le Devis PDF",
+                        data=pdf_buffer,
+                        file_name=f"devis_canape_{(nom_client or 'client').replace(' ', '_')}.pdf",
+                        mime="application/pdf"
+                    )
+                    
+                    st.success("✅ PDF généré avec succès !")
+                    
+                except Exception as e:
+                    st.error(f"❌ Erreur : {str(e)}")
+
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #8C6F63;'>
+    <p>🛋️ Configurateur de Canapé Marocain Sur Mesure</p>
+</div>
+""", unsafe_allow_html=True)
+
