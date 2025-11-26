@@ -534,6 +534,13 @@ with tab4:
             default=trav_options,
             help="Sélectionnez où placer les traversins supplémentaires"
         )
+
+    # Calculer le nombre effectif de traversins en fonction des positions sélectionnées.
+    # Si aucune position n'est sélectionnée, considérer qu'il n'y a pas de traversin supplémentaire.
+    if traversins_positions:
+        nb_traversins_effectif = len(traversins_positions)
+    else:
+        nb_traversins_effectif = 0
     has_surmatelas = st.checkbox("Surmatelas")
 
 # ONGLET 5 : MOUSSE
@@ -640,8 +647,6 @@ with tab6:
                     }
 
                     # Générer le schéma avec les paramètres actuels
-                    # Calculer le nombre effectif de traversins pour le PDF en fonction des positions sélectionnées.
-                    nb_traversins_effectif_pdf = len(traversins_positions) if traversins_positions else 0
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -963,8 +968,8 @@ with tab6:
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
                         coussins=type_coussins,
-                        # Utiliser nb_traversins_effectif_pdf pour refléter les positions sélectionnées dans le schéma PDF
-                        nb_traversins_supp=nb_traversins_effectif_pdf,
+                        # Utiliser nb_traversins_supp (réel) pour refléter les positions sélectionnées dans le schéma PDF
+                        nb_traversins_supp=nb_traversins_effectif,
                         traversins_positions=traversins_positions,
                         couleurs=couleurs
                     )
@@ -994,7 +999,7 @@ with tab6:
                         type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_effectif_pdf,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_effectif,
                         has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
                         arrondis=arrondis
                     )
