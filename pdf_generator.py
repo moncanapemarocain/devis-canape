@@ -415,18 +415,17 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
             if not re.match(r'^(\d+(?:\.\d+)?)cm$', key):
                 total_special += qty
 
-        # Si le type de coussins est valise/p/g, s'appuyer sur le nombre total de coussins
-        # d'assise (nb_coussins_assise) pour l'affichage.  Cela garantit une cohérence
-        # avec le schéma généré et évite les erreurs de comptage lorsque des traversins
-        # sont présents.  Si nb_coussins_assise est disponible, afficher
-        # « n coussins valises sur mesure » ; sinon utiliser total_special.
+        # Si le type de coussins est valise/p/g, on affiche le nombre de coussins d'assise
+        # extrait du tableau récapitulatif (nb_coussins_assise) afin de garantir une
+        # cohérence avec le schéma.  Si ce nombre est disponible, il prime.  Sinon,
+        # on utilise le total des coussins spéciaux.  Ce traitement évite les
+        # incohérences lorsque des traversins sont présents.
         if type_coussins in ['valise', 'p', 'g']:
             if nb_coussins_assise is not None:
                 coussins_descr = f"{nb_coussins_assise} coussins valises sur mesure"
             elif total_special > 0:
                 coussins_descr = f"{total_special} coussins valises sur mesure"
             else:
-                # Aucun coussin spécial détecté ; afficher 0 coussins valises sur mesure
                 coussins_descr = "0 coussins valises sur mesure"
         else:
             parts = []
