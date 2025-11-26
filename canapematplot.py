@@ -2624,6 +2624,21 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
 def _draw_cushions_U2f_optimized_wrapper(t, tr, pts, size, traversins=None):
     return _draw_cushions_U2f_optimized(t, tr, pts, size, traversins=traversins)
 
+# -----------------------------------------------------------------------------
+# Compatibility alias
+#
+# Earlier versions of this code used the French spelling
+# ``_draw_coussins_U2f_optimized_wrapper`` when drawing cushions for U2F
+# configurations.  Several call sites (particularly in the U2F rendering and
+# pricing logic) still refer to this older name.  Without an alias, Python
+# raises a ``NameError`` when the function is called.  To preserve backward
+# compatibility without rewriting all call sites, we define the French name as
+# a simple alias pointing to the canonical implementation above.
+
+# Create alias so both French and English spellings work identically.  See
+# canapematplot-4.py for a similar fix applied to the same issue.
+_draw_coussins_U2f_optimized_wrapper = _draw_cushions_U2f_optimized_wrapper
+
 def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                        dossier_left=True, dossier_bas=True, dossier_right=True,
                        acc_left=True, acc_bas=True, acc_right=True,
