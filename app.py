@@ -152,6 +152,7 @@ def generer_schema_canape(
     meridienne_len,
     coussins="auto",
     nb_traversins_supp: int = 0,
+    traversins_positions: list[str] | None = None,
 ) -> plt.Figure:
     """Génère le schéma du canapé.
 
@@ -190,7 +191,28 @@ def generer_schema_canape(
         # supplémentaire est demandé.  Cela permet d'afficher les traversins sur le schéma
         # uniquement lorsque l'utilisateur l'a explicitement indiqué dans le formulaire.
         traversins_cfg: str | None = None
-        if nb_traversins_supp and nb_traversins_supp > 0:
+        # Si l'utilisateur a sélectionné explicitement des positions pour les traversins,
+        # on les utilise pour le schéma.  Les valeurs possibles en entrée sont des
+        # libellés en français ("Gauche", "Droite", "Bas"); on les convertit en
+        # codes attendus par canapematplot/canapefullv88 : g, d, b.
+        if traversins_positions:
+            mapping = {
+                "gauche": "g",
+                "droite": "d",
+                "bas": "b",
+                "Gauche": "g",
+                "Droite": "d",
+                "Bas": "b",
+            }
+            codes = []
+            for pos in traversins_positions:
+                key = pos.strip().lower()
+                if key in mapping:
+                    codes.append(mapping[key])
+            # On trie et on supprime les doublons pour former la chaîne
+            if codes:
+                traversins_cfg = ",".join(sorted(set(codes)))
+        elif nb_traversins_supp and nb_traversins_supp > 0:
             # Déterminer la configuration par défaut en fonction du type de canapé.
             if "Simple" in type_canape:
                 traversins_cfg = "g,d"
@@ -432,6 +454,25 @@ with tab4:
 
     nb_coussins_deco = st.number_input("Coussins décoratifs", min_value=0, max_value=10, value=0)
     nb_traversins_supp = st.number_input("Traversins supplémentaires", min_value=0, max_value=5, value=0)
+    # Permettre à l'utilisateur de choisir l'emplacement des traversins lorsqu'il en ajoute.
+    # On détermine les positions autorisées selon la forme du canapé :
+    #  - Simple : gauche/droite
+    #  - L (LF/LNF) : gauche/bas
+    #  - U : gauche/droite/bas (le bas est parfois inopérant selon la variante)
+    traversins_positions = []
+    if nb_traversins_supp > 0:
+        if "Simple" in st.session_state.type_canape:
+            trav_options = ["Gauche", "Droite"]
+        elif "L" in st.session_state.type_canape:
+            trav_options = ["Gauche", "Bas"]
+        else:
+            trav_options = ["Gauche", "Droite", "Bas"]
+        traversins_positions = st.multiselect(
+            "Position des traversins",
+            trav_options,
+            default=trav_options,
+            help="Sélectionnez où placer les traversins supplémentaires"
+        )
     has_surmatelas = st.checkbox("Surmatelas")
 
 # ONGLET 5 : MOUSSE
@@ -513,9 +554,8 @@ with tab6:
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
                         coussins=type_coussins,
-                        # Afficher les traversins sur le schéma uniquement si
-                        # l'utilisateur a saisi au moins un traversin supplémentaire.
-                        nb_traversins_supp=nb_traversins_supp
+                        nb_traversins_supp=nb_traversins_supp,
+                        traversins_positions=traversins_positions
                     )
 
                     # Préparer une fonction utilitaire pour calculer les prix HT
@@ -796,9 +836,8 @@ with tab6:
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
                         coussins=type_coussins,
-                        # Afficher les traversins sur le schéma uniquement si l'utilisateur
-                        # a saisi au moins un traversin supplémentaire
-                        nb_traversins_supp=nb_traversins_supp
+                        nb_traversins_supp=nb_traversins_supp,
+                        traversins_positions=traversins_positions
                     )
                     
                     img_buffer = BytesIO()
