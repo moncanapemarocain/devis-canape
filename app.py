@@ -509,7 +509,7 @@ with tab4:
     # Les éléments liés aux coussins étaient auparavant dans les options ; ils sont déplacés ici.
     type_coussins = st.selectbox(
         "Type de coussins",
-        ["auto", "65", "80", "90", "80-90", "valise", "p", "g"],
+        ["auto", "65", "80", "90", "80-90", "valise", "g"],
         help="Auto = optimisation automatique, 80-90 = optimisation par côté entre 80 et 90 cm"
     )
 
