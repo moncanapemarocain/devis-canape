@@ -417,6 +417,25 @@ def calculer_prix_total(
     nb_coussins_80 = int(data.get('nb_coussins_80') or 0)
     nb_coussins_90 = int(data.get('nb_coussins_90') or 0)
     nb_coussins_valise = int(data.get('nb_coussins_valise') or 0)
+
+    # --- Harmonisation des coussins pour les modes "valise" / "p" / "g" / "s" ---
+    # Lorsque l'utilisateur choisit un mode valise ("valise", "p", "g" ou variantes avec ":s"),
+    # les coussins sont tous considérés comme des coussins valise, indépendamment de la
+    # dimension finale (65, 80 ou 90 cm).  Cela permet de conserver une cohérence entre le
+    # rendu graphique (où l'algorithme peut choisir 80 ou 90 cm pour optimiser l'espace
+    # tout en restant dans la plage autorisée) et le chiffrage du devis.  Sans cette
+    # harmonisation, certains coussins étaient comptabilisés comme 65/80/90 cm alors
+    # qu'ils résultaient d’un choix valise, ce qui entraînait un décalage entre le
+    # nombre de coussins dessinés et les quantités notées dans le devis.
+    tc_lower = str(type_coussins or '').strip().lower()
+    tc_base = tc_lower.replace(':s', '')  # retirer suffixe ":s" s'il existe
+    if tc_base in ('valise', 'p', 'g', 's'):
+        total_valise = nb_coussins_65 + nb_coussins_80 + nb_coussins_90 + nb_coussins_valise
+        nb_coussins_valise = total_valise
+        nb_coussins_65 = 0
+        nb_coussins_80 = 0
+        nb_coussins_90 = 0
+
     cushion_total = (
         nb_coussins_65 * 40.0 +
         nb_coussins_80 * 50.0 +
