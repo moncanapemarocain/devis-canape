@@ -671,7 +671,9 @@ with tab6:
                         'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
                         'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_effectif,
                         'has_surmatelas': has_surmatelas,
-                        'has_meridienne': has_meridienne
+                        'has_meridienne': has_meridienne,
+                        # transmettre également les positions des traversins pour un calcul cohérent
+                        'traversins_positions': traversins_positions
                     }
                     def price_ht_for(update_dict):
                         params = base_params.copy()
@@ -751,7 +753,8 @@ with tab6:
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
                         has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
-                        arrondis=arrondis
+                        arrondis=arrondis,
+                        traversins_positions=traversins_positions
                     )
                     # Récupération des totaux HT et TTC
                     prix_ht_total = prix_details_full.get('prix_ht', 0.0)
@@ -774,31 +777,19 @@ with tab6:
                     nb_dossier_selected = int(dossier_left) + int(dossier_bas) + int(dossier_right)
 
                     # Nombre de coussins d'assise (approximation si dimension numérique)
-                    # Nombre de coussins d'assise
-                    # Plutôt que d'estimer le nombre de coussins à partir des
-                    # longueurs des banquettes (ce qui échoue quand
-                    # ``type_coussins`` n'est pas numérique, par exemple « valise »
-                    # ou « g »), on récupère la quantité exacte depuis les
-                    # détails du calcul renvoyés par ``calculer_prix_total``.
-                    # La liste ``calculation_details`` contient une entrée par
-                    # coussin avec la catégorie ``cushion`` et la quantité.
-                    # On additionne uniquement les coussins d'assise (excluant
-                    # les coussins déco) pour obtenir un total fiable.
                     nb_coussins_assise = 0
                     try:
-                        details = prix_details_full.get("calculation_details", []) or []
-                        for item in details:
-                            # On filtre sur la catégorie « cushion » (coussin)
-                            # et on ignore les entrées « Coussin déco » qui
-                            # correspondent aux coussins décoratifs.
-                            if item.get("category") == "cushion" and item.get("item") != "Coussin déco":
-                                qty = item.get("quantity")
-                                # Convertir la quantité en entier si possible
-                                try:
-                                    nb_coussins_assise += int(qty) if qty is not None else 0
-                                except Exception:
-                                    # Si la conversion échoue, on ignore cette entrée
-                                    pass
+                        couss_dim = int(type_coussins)
+                        bench_lengths = []
+                        if "Simple" in tc:
+                            bench_lengths = [st.session_state.tx]
+                        elif "L" in tc:
+                            bench_lengths = [st.session_state.ty, st.session_state.tx]
+                        else:
+                            bench_lengths = [st.session_state.ty, st.session_state.tx, st.session_state.tz]
+                        import math
+                        for lng in bench_lengths:
+                            nb_coussins_assise += math.ceil(lng / couss_dim)
                     except Exception:
                         nb_coussins_assise = 0
 
@@ -910,7 +901,8 @@ with tab6:
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
                         has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
-                        arrondis=arrondis
+                        arrondis=arrondis,
+                        traversins_positions=traversins_positions
                     )
                     cout_revient_ht_total = prix_details_calc.get('cout_revient_ht', 0.0)
                     # Marge totale HT = (prix TTC après remise converti en HT) - coût de revient HT
@@ -1013,7 +1005,8 @@ with tab6:
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_effectif,
                         has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
-                        arrondis=arrondis
+                        arrondis=arrondis,
+                        traversins_positions=traversins_positions
                     )
                     # Le supplément d'arrondis est maintenant intégré dans calculer_prix_total via le paramètre arrondis
 
