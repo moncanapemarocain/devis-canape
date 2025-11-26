@@ -7,6 +7,25 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from io import BytesIO
 from PIL import Image
+from typing import Optional, Dict
+
+# Palette de couleurs personnalisable pour le rendu du schéma.
+# La clef "Transparent (par défaut)" correspond à une absence de remplissage
+# (les rectangles seront transparents). Les autres entrées sont converties
+# en codes hexadécimaux lors du rendu.
+COLOR_PALETTE: Dict[str, Optional[str]] = {
+    # La première entrée correspond à la sélection « Blanc » par défaut.  L'ancienne entrée
+    # « Transparent (par défaut) » est conservée comme option mais n'est plus utilisée comme valeur par défaut.
+    "Blanc": "#ffffff",
+    "Transparent": None,
+    "Beige": "#d8c4a8",
+    "Beige clair": "#e6dac8",
+    "Crème": "#f4f1e9",
+    "Taupe": "#8B7E74",
+    "Gris foncé": "#7d7d7d",
+    "Gris clair": "#cfcfcf",
+    "Marron clair": "#a1866f",
+}
 
 # Import des modules personnalisés
 # Import du nouveau module de pricing (avec angle traité comme banquette)
@@ -19,20 +38,6 @@ from canapematplot import (
     render_U, render_U1F_v1, render_U1F_v2, render_U1F_v3, render_U1F_v4,
     render_Simple1
 )
-
-# Palette de couleurs pour la personnalisation du schéma.
-# Les clés sont les libellés proposés à l'utilisateur et les valeurs sont
-# des codes hexadécimaux (ou ``None`` pour représenter la transparence).
-COLOR_CHOICES = {
-    "Transparent": None,
-    "Blanc": "#ffffff",
-    "Beige": "#d8c4a8",
-    "Crème": "#f4f1e9",
-    "Taupe": "#8B7E74",
-    "Gris foncé": "#4b4b4b",
-    "Gris clair": "#b8b8b8",
-    "Marron clair": "#A67B5B",
-}
 
 # Configuration de la page
 st.set_page_config(
@@ -167,7 +172,7 @@ def generer_schema_canape(
     coussins="auto",
     nb_traversins_supp: int = 0,
     traversins_positions: list[str] | None = None,
-    couleurs: dict | None = None,
+    couleurs: Optional[Dict[str, Optional[str]]] = None,
 ) -> plt.Figure:
     """Génère le schéma du canapé.
 
@@ -193,12 +198,6 @@ def generer_schema_canape(
         Nombre de traversins supplémentaires sélectionnés dans le formulaire. Si strictement positif,
         des traversins seront dessinés selon la géométrie du canapé.  Par défaut, aucun traversin
         n'est dessiné.
-
-    couleurs : dict, optional
-        Dictionnaire de couleurs personnalisées à appliquer au schéma.  Les clés attendues
-        sont "accoudoirs", "dossiers", "assise" et "coussins".  Les valeurs peuvent être
-        un code hexadécimal (par exemple "#d8c4a8") ou ``None`` pour une transparence.  Si
-        ``None`` ou omis, la palette par défaut est appliquée.
 
     Returns
     -------
@@ -376,8 +375,43 @@ st.markdown("---")
 
 # Création des onglets avec la nouvelle structure :
 # 1 : Type, 2 : Dimensions, 3 : Structure (anciennement Options),
-# 4 : Coussins, 5 : Mousse (anciennement Matériaux), 6 : Couleurs, 7 : Client.
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Type", "Dimensions", "Structure", "Coussins", "Mousse", "Couleurs", "Client"])
+# 4 : Coussins, 5 : Mousse (anciennement Matériaux), 6 : Client,
+# 7 : Couleurs.
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "Type", "Dimensions", "Structure", "Coussins", "Mousse", "Client", "Couleurs"
+])
+
+# Onglet 7 : Couleurs
+with tab7:
+    st.markdown("### Choix des couleurs du schéma")
+    st.info(
+        "Par défaut, la structure et les banquettes/mousses sont blanches, tandis que les coussins sont beige clair. "
+        "Vous pouvez personnaliser ces couleurs ci‑dessous."
+    )
+    # Sélecteurs de couleur pour la structure (accoudoirs et dossiers)
+    color_structure_choice = st.selectbox(
+        "Couleur de la structure (accoudoirs et dossiers)",
+        list(COLOR_PALETTE.keys()),
+        index=list(COLOR_PALETTE.keys()).index("Blanc"),
+        key="color_structure_choice",
+        help="Choisissez la couleur des accoudoirs et des dossiers, ou laissez Transparent pour ne pas colorier ces éléments."
+    )
+    # Sélecteur pour la couleur des banquettes/mousses (assise)
+    color_banquette_choice = st.selectbox(
+        "Couleur des banquettes/mousses (assise)",
+        list(COLOR_PALETTE.keys()),
+        index=list(COLOR_PALETTE.keys()).index("Blanc"),
+        key="color_banquette_choice",
+        help="Choisissez la couleur des banquettes/mousses, ou laissez Transparent pour ne pas colorier ces éléments."
+    )
+    # Sélecteur pour la couleur des coussins
+    color_coussins_choice = st.selectbox(
+        "Couleur des coussins",
+        list(COLOR_PALETTE.keys()),
+        index=list(COLOR_PALETTE.keys()).index("Beige clair"),
+        key="color_coussins_choice",
+        help="Choisissez la couleur des coussins. Le choix par défaut est Beige clair."
+    )
 
 # ONGLET 1: TYPE
 with tab1:
@@ -517,37 +551,8 @@ with tab5:
     with col2:
         st.info("Les options de tissus seront affichées après validation de la configuration")
 
-# ONGLET 6 : COULEURS
+# ONGLET 6 : CLIENT
 with tab6:
-    st.markdown("### Couleurs du schéma")
-    st.markdown(
-        "Sélectionnez les couleurs de la structure, des banquettes/mousses et des coussins. "
-        "Par défaut, la structure et les banquettes sont transparentes et les coussins sont beiges."
-    )
-    # Sélection de la couleur de la structure (accoudoirs et dossiers)
-    structure_choice = st.selectbox(
-        "Couleur de la structure (accoudoirs et dossiers)",
-        list(COLOR_CHOICES.keys()),
-        index=list(COLOR_CHOICES.keys()).index("Transparent"),
-        key="structure_color_choice"
-    )
-    # Sélection de la couleur des banquettes/mousses
-    banquette_choice = st.selectbox(
-        "Couleur des banquettes/mousses",
-        list(COLOR_CHOICES.keys()),
-        index=list(COLOR_CHOICES.keys()).index("Transparent"),
-        key="banquette_color_choice"
-    )
-    # Sélection de la couleur des coussins
-    cushion_choice = st.selectbox(
-        "Couleur des coussins",
-        list(COLOR_CHOICES.keys()),
-        index=list(COLOR_CHOICES.keys()).index("Beige"),
-        key="cushion_color_choice"
-    )
-
-# ONGLET 7 : CLIENT
-with tab7:
     st.markdown("### Informations Client")
     st.markdown("Renseignez les coordonnées du client pour finaliser le devis")
     
@@ -601,30 +606,40 @@ with tab7:
         if st.button("👁️ Générer l'Aperçu", use_container_width=True):
             with st.spinner("Génération du schéma en cours..."):
                 try:
-                    # Générer le schéma avec les paramètres actuels
-                    # Détermination de la palette de couleurs sélectionnée par l'utilisateur.
-                    struct_choice = st.session_state.get('structure_color_choice', 'Transparent')
-                    assise_choice = st.session_state.get('banquette_color_choice', 'Transparent')
-                    cush_choice = st.session_state.get('cushion_color_choice', 'Beige')
-                    # Pour la structure : si transparent, on utilise une chaîne vide plutôt que None afin
-                    # d'éviter un éclaircissement automatique dans _resolve_and_apply_colors.
-                    struct_val = COLOR_CHOICES.get(struct_choice)
+                    # Préparer le dictionnaire de couleurs à partir des choix de l'utilisateur
+                    try:
+                        struct_choice = st.session_state.get('color_structure_choice')
+                    except Exception:
+                        struct_choice = None
+                    try:
+                        banq_choice = st.session_state.get('color_banquette_choice')
+                    except Exception:
+                        banq_choice = None
+                    try:
+                        cous_choice = st.session_state.get('color_coussins_choice')
+                    except Exception:
+                        cous_choice = None
+                    # Construire la palette de couleurs pour le schéma.  Si la couleur de la structure
+                    # (accoudoirs/dossiers) est "Transparent", on utilise une chaîne vide pour accoudoirs
+                    # et dossiers afin d'éviter un éclaircissement par défaut dans canapematplot.
+                    struct_val = COLOR_PALETTE.get(struct_choice)
                     if struct_val is None:
                         acc_val = ""
                         dos_val = ""
                     else:
                         acc_val = struct_val
                         dos_val = struct_val
-                    assise_val = COLOR_CHOICES.get(assise_choice)
-                    # None est autorisé pour l'assise (banquette) pour représenter une transparence.
-                    assise_val = assise_val if assise_val is not None else None
-                    coussin_val = COLOR_CHOICES.get(cush_choice)
+                    ass_val = COLOR_PALETTE.get(banq_choice)
+                    ass_val = ass_val if ass_val is not None else None
+                    cous_val = COLOR_PALETTE.get(cous_choice)
                     couleurs = {
                         'accoudoirs': acc_val,
                         'dossiers': dos_val,
-                        'assise': assise_val,
-                        'coussins': coussin_val,
+                        'assise': ass_val,
+                        'coussins': cous_val,
                     }
+
+                    # Générer le schéma avec les paramètres actuels
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -908,25 +923,35 @@ with tab7:
         if st.button("📄 Générer le Devis PDF", type="primary", use_container_width=True):
             with st.spinner("Création du PDF en cours..."):
                 try:
-                    # Préparation de la palette de couleurs pour le schéma PDF
-                    struct_choice = st.session_state.get('structure_color_choice', 'Transparent')
-                    assise_choice = st.session_state.get('banquette_color_choice', 'Transparent')
-                    cush_choice = st.session_state.get('cushion_color_choice', 'Beige')
-                    struct_val = COLOR_CHOICES.get(struct_choice)
+                    # Préparer le dictionnaire de couleurs à partir des choix de l'utilisateur pour le schéma PDF
+                    try:
+                        struct_choice = st.session_state.get('color_structure_choice')
+                    except Exception:
+                        struct_choice = None
+                    try:
+                        banq_choice = st.session_state.get('color_banquette_choice')
+                    except Exception:
+                        banq_choice = None
+                    try:
+                        cous_choice = st.session_state.get('color_coussins_choice')
+                    except Exception:
+                        cous_choice = None
+                    # Construire la palette de couleurs pour le schéma PDF.
+                    struct_val = COLOR_PALETTE.get(struct_choice)
                     if struct_val is None:
                         acc_val = ""
                         dos_val = ""
                     else:
                         acc_val = struct_val
                         dos_val = struct_val
-                    assise_val = COLOR_CHOICES.get(assise_choice)
-                    assise_val = assise_val if assise_val is not None else None
-                    coussin_val = COLOR_CHOICES.get(cush_choice)
+                    ass_val = COLOR_PALETTE.get(banq_choice)
+                    ass_val = ass_val if ass_val is not None else None
+                    cous_val = COLOR_PALETTE.get(cous_choice)
                     couleurs = {
                         'accoudoirs': acc_val,
                         'dossiers': dos_val,
-                        'assise': assise_val,
-                        'coussins': coussin_val,
+                        'assise': ass_val,
+                        'coussins': cous_val,
                     }
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
