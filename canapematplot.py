@@ -803,10 +803,36 @@ def _label_backrests_armrests(t, tr, polys):
         # un seul polygone évite de placer l'annotation sur une éventuelle
         # arrête issue d'une scission : le texte reste bien dans un morceau.
         label_poly(t, tr, candidate, "10cm", font=FONT_DOSSIER)
-    # Annoter tous les accoudoirs avec « 15cm »
+    # Annoter les accoudoirs.  L'accoudoir le plus bas (horizontal) est
+    # annoté « 15 » pour éviter l'encombrement visuel ; les autres
+    # accoudoirs restent étiquetés « 15cm ».
+    # Identifier l'accoudoir bas : horizontal et ayant la plus petite
+    # coordonnée y.
+    bottom_arm = None
+    bottom_y = float("inf")
+    bottom_w = 0.0
     for p in polys.get("accoudoirs", []):
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "15cm")
+        if not _poly_has_area(p):
+            continue
+        xs = [pt[0] for pt in p]; ys = [pt[1] for pt in p]
+        width = max(xs) - min(xs)
+        height = max(ys) - min(ys)
+        # Un accoudoir horizontal a une largeur supérieure ou égale à sa hauteur
+        if width + 1e-9 < height:
+            continue
+        min_y = min(ys)
+        # Choisir l'accoudoir au niveau le plus bas (y minimal) ; en cas d'égalité,
+        # préférer celui de plus grande largeur.
+        if (min_y < bottom_y) or (abs(min_y - bottom_y) < 1e-9 and width > bottom_w):
+            bottom_y = min_y
+            bottom_w = width
+            bottom_arm = p
+    # Appliquer les libellés appropriés à chaque accoudoir
+    for p in polys.get("accoudoirs", []):
+        if not _poly_has_area(p):
+            continue
+        label = "15" if p is bottom_arm else "15cm"
+        label_poly(t, tr, p, label)
 
 def _assert_banquettes_max_250(polys):
     for poly in polys.get("banquettes", []):
