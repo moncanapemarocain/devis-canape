@@ -640,6 +640,8 @@ with tab6:
                     }
 
                     # Générer le schéma avec les paramètres actuels
+                    # Calculer le nombre effectif de traversins pour le PDF en fonction des positions sélectionnées.
+                    nb_traversins_effectif_pdf = len(traversins_positions) if traversins_positions else 0
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -961,8 +963,8 @@ with tab6:
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
                         coussins=type_coussins,
-                        # Utiliser nb_traversins_effectif pour refléter les positions sélectionnées dans le schéma PDF
-                        nb_traversins_supp=nb_traversins_effectif,
+                        # Utiliser nb_traversins_effectif_pdf pour refléter les positions sélectionnées dans le schéma PDF
+                        nb_traversins_supp=nb_traversins_effectif_pdf,
                         traversins_positions=traversins_positions,
                         couleurs=couleurs
                     )
@@ -992,7 +994,7 @@ with tab6:
                         type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_effectif_pdf,
                         has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
                         arrondis=arrondis
                     )
