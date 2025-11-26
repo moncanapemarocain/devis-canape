@@ -745,6 +745,69 @@ def _poly_has_area(p):
     xs=[x for x,y in p]; ys=[y for x,y in p]
     return (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9)
 
+# Nouveau : fonction utilitaire pour annoter les dossiers et accoudoirs.
+# Le texte d'épaisseur des dossiers (« 10 cm ») doit apparaître en bas du
+# canapé plutôt que sur le dossier gauche.  On identifie donc le dossier
+# le plus bas (celui dont la coordonnée y minimale est la plus petite)
+# parmi les dossiers non dégénérés et on y place l'annotation centrée.
+# Les accoudoirs sont systématiquement annotés avec « 15 cm ».
+def _label_backrests_armrests(t, tr, polys):
+    """
+    Annotate the backrests and armrests with their thicknesses.
+
+    The backrest thickness should be displayed as “10cm” and positioned on
+    the bottom-most backrest rather than on the left side.  We scan the
+    list of non-degenerate backrest polygons, pick the one whose lowest
+    y‑coordinate is minimal (tie‑breaking on width), and annotate it at its
+    centroid.  All armrests are labelled with “15cm”.
+
+    Parameters
+    ----------
+    t : turtle-like drawing context
+        The drawing turtle used to write text.
+    tr : Transform
+        The cm→px transform used for the current render.
+    polys : dict
+        Dictionary of polygons with keys including “dossiers” and “accoudoirs”.
+    """
+    # Sélection du polygone le plus bas et horizontal pour placer « 10cm ».
+    # On priorise un dossier horizontal si présent ; à défaut, on cherche une banquette.
+    candidate = None
+    best_y = float("inf")
+    best_w = 0.0
+    # Fonction interne pour mettre à jour le meilleur choix à partir d'un ensemble de polygones
+    def update_best(polys_list):
+        nonlocal candidate, best_y, best_w
+        for p in polys_list:
+            if not _poly_has_area(p):
+                continue
+            xs = [pt[0] for pt in p]; ys = [pt[1] for pt in p]
+            width = max(xs) - min(xs)
+            height = max(ys) - min(ys)
+            # On cherche un polygone horizontal : largeur ≥ hauteur
+            if width + 1e-9 < height:
+                continue
+            min_y = min(ys)
+            # Choisir celui ayant la coordonnée y minimale, puis la plus grande largeur
+            if (min_y < best_y) or (abs(min_y - best_y) < 1e-9 and width > best_w):
+                best_y = min_y
+                best_w = width
+                candidate = p
+    # Chercher d'abord dans les dossiers, puis dans les banquettes si rien trouvé
+    update_best(polys.get("dossiers", []))
+    if candidate is None:
+        update_best(polys.get("banquettes", []))
+    # Placer l'annotation « 10cm » si un candidat a été trouvé
+    if candidate is not None:
+        # Positionner simplement le texte au centre du polygone choisi.  Utiliser
+        # un seul polygone évite de placer l'annotation sur une éventuelle
+        # arrête issue d'une scission : le texte reste bien dans un morceau.
+        label_poly(t, tr, candidate, "10cm", font=FONT_DOSSIER)
+    # Annoter tous les accoudoirs avec « 15cm »
+    for p in polys.get("accoudoirs", []):
+        if _poly_has_area(p):
+            label_poly(t, tr, p, "15cm")
+
 def _assert_banquettes_max_250(polys):
     for poly in polys.get("banquettes", []):
         L, P = banquette_dims(poly)
@@ -2189,12 +2252,9 @@ def render_LF_variant(tx, ty, profondeur=DEPTH_STD,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=CUSHION_DEPTH + 7, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
-    # Label only the first non-degenerate backrest with its thickness (10 cm)
-    for poly in polys["dossiers"]:
-        if _poly_has_area(poly):
-            label_poly(t, tr, poly, "10", font=FONT_DOSSIER)
-            break
-    for poly in polys["accoudoirs"]: label_poly(t,tr,poly,"15")
+    # Annoter dossiers et accoudoirs avec leurs épaisseurs (« 10cm » pour le dossier le plus bas
+    # et « 15cm » pour chaque accoudoir)
+    _label_backrests_armrests(t, tr, polys)
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
@@ -2605,16 +2665,9 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
         else:
             label_poly(t, tr, poly, text)
 
-    # After labeling the banquettes, annotate the backrests and armrests
-    # with their respective thicknesses.  Using “10cm” instead of just
-    # “10” makes the unit explicit on the U2F variant as well.
-    for p in polys["dossiers"]:
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
-            break
-    for p in polys["accoudoirs"]:
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "15")
+    # Après avoir étiqueté les banquettes, annoter dossiers et accoudoirs
+    # avec leurs épaisseurs (« 10cm » pour le dossier le plus bas et « 15cm » pour chaque accoudoir)
+    _label_backrests_armrests(t, tr, polys)
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
@@ -3577,17 +3630,8 @@ def _render_common_U1F(variant, tx, ty_left, tz_right, profondeur,
             label_poly_offset_cm(t, tr, poly, text, dx_cm=dx, dy_cm=0.0)
         else:
             label_poly(t, tr, poly, text)
-    # Label only the first dossier with non-zero area.  Use “10cm” to
-    # explicitly indicate the backrest thickness.
-    for p in polys["dossiers"]:
-        xs = [pp[0] for pp in p]; ys = [pp[1] for pp in p]
-        if (max(xs) - min(xs) > 1e-9) and (max(ys) - min(ys) > 1e-9):
-            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
-            break
-    for p in polys["accoudoirs"]:
-        xs=[pp[0] for pp in p]; ys=[pp[1] for pp in p]
-        if (max(xs)-min(xs) > 1e-9) and (max(ys)-min(ys) > 1e-9):
-            label_poly(t,tr,p,"15")
+    # Annoter dossiers et accoudoirs avec leurs épaisseurs
+    _label_backrests_armrests(t, tr, polys)
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
@@ -4251,12 +4295,8 @@ def _render_common_L(tx, ty, pts, polys, coussins, window_title,
         else:
             label_poly(t, tr, poly, text)
 
-    # Annotate only the first backrest to avoid repeating “10cm” on every piece
-    for p in polys["dossiers"]:
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
-            break
-    for p in polys["accoudoirs"]: label_poly(t,tr,p,"15")
+    # Annoter dossiers et accoudoirs avec leurs épaisseurs
+    _label_backrests_armrests(t, tr, polys)
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
@@ -5791,13 +5831,8 @@ def _render_common_U(
 
     # Label backs and armrests
     # Annotate only the first non-degenerate backrest with its thickness
-    for p in polys["dossiers"]:
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
-            break
-    for p in polys["accoudoirs"]:
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "15")
+    # Annoter dossiers et accoudoirs avec leurs épaisseurs
+    _label_backrests_armrests(t, tr, polys)
 
     # Draw cushions
     spec = _parse_coussins_spec(coussins)
@@ -6697,12 +6732,8 @@ def render_Simple1(tx,
         else:
             label_poly(t, tr, poly, text)
     # Annotate only the first non-degenerate backrest with its thickness
-    for p in polys["dossiers"]:
-        if _poly_has_area(p):
-            label_poly(t, tr, p, "10", font=FONT_DOSSIER)
-            break
-    for p in polys["accoudoirs"]:
-        if _poly_has_area(p): label_poly(t, tr, p, "15")
+    # Annoter dossiers et accoudoirs avec leurs épaisseurs
+    _label_backrests_armrests(t, tr, polys)
 
     # ===== COUSSINS =====
     spec = _parse_coussins_spec(coussins)
