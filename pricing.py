@@ -100,7 +100,7 @@ def _call_render_function(mod: object, *, type_canape: str, tx: float | int | No
                           tz: float | int | None, profondeur: float | int | None, dossier_left: bool, dossier_bas: bool,
                           dossier_right: bool, acc_left: bool, acc_bas: bool, acc_right: bool,
                           meridienne_side: str | None, meridienne_len: float | int | None,
-                          coussins: str | int | None) -> str:
+                          coussins: str | int | None, traversins: str | None = None) -> str:
     """Appelle la fonction de rendu appropriée et capture la sortie console."""
     try:
         render_func: callable
@@ -117,6 +117,7 @@ def _call_render_function(mod: object, *, type_canape: str, tx: float | int | No
                 meridienne_side=meridienne_side,
                 meridienne_len=meridienne_len or 0,
                 coussins=coussins or 'auto',
+                traversins=traversins,
                 window_title="simple"
             )
         elif 'l - sans angle' in t:
@@ -132,6 +133,7 @@ def _call_render_function(mod: object, *, type_canape: str, tx: float | int | No
                 meridienne_side=meridienne_side,
                 meridienne_len=meridienne_len or 0,
                 coussins=coussins or 'auto',
+                traversins=traversins,
                 variant="auto",
                 window_title="LNF"
             )
@@ -148,6 +150,7 @@ def _call_render_function(mod: object, *, type_canape: str, tx: float | int | No
                 meridienne_side=meridienne_side,
                 meridienne_len=meridienne_len or 0,
                 coussins=coussins or 'auto',
+                traversins=traversins,
                 window_title="LF"
             )
         elif 'u - sans angle' in t or (('u ' in t) and ('sans angle' in t)):
@@ -164,6 +167,7 @@ def _call_render_function(mod: object, *, type_canape: str, tx: float | int | No
                 acc_bas=acc_bas,
                 acc_right=acc_right,
                 coussins=coussins or 'auto',
+                traversins=traversins,
                 variant="auto",
                 window_title="U"
             )
@@ -182,6 +186,7 @@ def _call_render_function(mod: object, *, type_canape: str, tx: float | int | No
                 meridienne_side=meridienne_side,
                 meridienne_len=meridienne_len or 0,
                 coussins=coussins or 'auto',
+                traversins=traversins,
                 window_title="U1F"
             )
         elif 'u - 2 angles' in t:
@@ -200,6 +205,7 @@ def _call_render_function(mod: object, *, type_canape: str, tx: float | int | No
                 meridienne_side=meridienne_side,
                 meridienne_len=meridienne_len or 0,
                 coussins=coussins or 'auto',
+                traversins=traversins,
                 variant="auto",
                 window_title="U2F"
             )
@@ -364,6 +370,8 @@ def calculer_prix_total(
     meridienne_side: str | None = None,
     meridienne_len: float | int | None = None,
     arrondis: bool | int = False
+    , traversins: str | None = None,
+    traversins_positions: List[str] | None = None
 ) -> Dict[str, float]:
     """Calcule le prix total TTC et fournit un détail complet des calculs.
 
@@ -378,6 +386,38 @@ def calculer_prix_total(
     epaisseur_val = float(epaisseur or 0)
     density = _density_from_type(type_mousse or 'D25')
     mod = _load_canape_module()
+    # Déterminer la configuration des traversins (g/d/b) à partir des positions ou du nombre
+    traversins_cfg = None
+    # Convertir les positions fournies en codes attendus par canapematplot
+    if traversins_positions:
+        mapping = {
+            'gauche': 'g', 'droite': 'd', 'bas': 'b',
+            'Gauche': 'g', 'Droite': 'd', 'Bas': 'b'
+        }
+        codes: List[str] = []
+        for pos in traversins_positions:
+            key = str(pos).strip()
+            if key in mapping:
+                codes.append(mapping[key])
+            else:
+                lower_key = key.lower()
+                if lower_key in mapping:
+                    codes.append(mapping[lower_key])
+        if codes:
+            traversins_cfg = ",".join(sorted(set(codes)))
+    elif traversins is not None:
+        # Utiliser directement la valeur fournie si présente
+        traversins_cfg = traversins
+    elif nb_traversins_supp and nb_traversins_supp > 0:
+        # Définir une configuration par défaut selon la forme du canapé
+        t = (type_canape or '').lower()
+        if 'simple' in t:
+            traversins_cfg = 'g,d'
+        elif 'l' in t:
+            traversins_cfg = 'g,b'
+        elif 'u' in t:
+            traversins_cfg = 'g,b,d'
+    # Appeler la fonction de rendu avec la configuration de traversins
     try:
         report = _call_render_function(
             mod,
@@ -394,7 +434,8 @@ def calculer_prix_total(
             acc_right=acc_right,
             meridienne_side=meridienne_side,
             meridienne_len=meridienne_len or 0,
-            coussins=type_coussins or 'auto'
+            coussins=type_coussins or 'auto',
+            traversins=traversins_cfg
         )
     except Exception:
         raise
@@ -443,7 +484,18 @@ def calculer_prix_total(
         nb_coussins_valise * 75.0 +
         nb_coussins_deco * 15.0
     )
-    nb_traversins = int(data.get('nb_traversins') or 0) + int(nb_traversins_supp or 0)
+    # Déterminer le nombre de traversins à facturer.
+    # Lorsque des positions spécifiques sont fournies (via traversins_positions ou traversins_cfg),
+    # le rendu graphique dessine exactement ces traversins.  Dans ce cas, on ne doit pas
+    # additionner à nouveau nb_traversins_supp, car nb_traversins_supp représente déjà le
+    # nombre de traversins désirés et a servi à construire traversins_cfg.  Si aucune position
+    # n'est spécifiée et qu'il n'y a pas de configuration, on ajoute nb_traversins_supp au
+    # nombre détecté dans le rapport (généralement 0).
+    nb_traversins_par_console = int(data.get('nb_traversins') or 0)
+    if traversins_positions or traversins_cfg:
+        nb_traversins = nb_traversins_par_console
+    else:
+        nb_traversins = nb_traversins_par_console + int(nb_traversins_supp or 0)
     traversin_total = nb_traversins * 30.0
     # Le nombre de surmatelas doit correspondre au nombre total de mousses (droites et d'angle)
     # lorsqu'ils sont activés. On calcule donc une unité par coussin si has_surmatelas est vrai.
