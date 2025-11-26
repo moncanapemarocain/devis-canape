@@ -358,11 +358,45 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     # Ligne 0 : titre à gauche, cellule vide à droite
     table_rows.append([Paragraph("Détail du devis :", column_header_style), Paragraph("", detail_style)])
     # Ligne 1 : Dimensions et Coussins
-    if nb_coussins_assise is not None:
-        # Afficher le nombre de coussins suivi d'un « x » et de la taille
-        right_coussins = Paragraph(f"Coussins : {nb_coussins_assise} x {taille_coussins}", detail_style)
+    # Générer le descriptif des coussins d'assise en se basant sur les détails de calcul.
+    coussins_descr = ""
+    # Construire un dictionnaire du nombre de coussins par taille (hors coussins déco)
+    cushion_counts = {}
+    if details_list:
+        try:
+            for entry in details_list:
+                if entry.get('category', '').lower() == 'cushion':
+                    item_name = entry.get('item', '').lower()
+                    qty = entry.get('quantity', 0)
+                    # Ignorer les coussins déco
+                    if 'déco' in item_name:
+                        continue
+                    # Extraire la taille en cm depuis le nom, ex : 'coussin 80 cm'
+                    parts = item_name.split()
+                    # La taille est typiquement l'élément juste avant 'cm'
+                    size_cm = None
+                    for i, p in enumerate(parts):
+                        if p.replace('cm','').isdigit():
+                            size_cm = p.replace('cm', '')
+                            break
+                    if size_cm and qty:
+                        cushion_counts[size_cm] = cushion_counts.get(size_cm, 0) + qty
+        except Exception:
+            pass
+    # Construire la chaîne descriptive si des données sont disponibles
+    if cushion_counts:
+        # Trier les tailles par ordre numérique pour plus de lisibilité
+        parts = []
+        for size in sorted(cushion_counts.keys(), key=lambda x: float(x)):
+            parts.append(f"{cushion_counts[size]} x {size}cm")
+        coussins_descr = ", ".join(parts)
     else:
-        right_coussins = Paragraph("Coussins : -", detail_style)
+        # Si aucun détail, utiliser le nombre et la taille des coussins saisis
+        if nb_coussins_assise is not None:
+            coussins_descr = f"{nb_coussins_assise} x {taille_coussins}"
+        else:
+            coussins_descr = "-"
+    right_coussins = Paragraph(f"Coussins : {coussins_descr}", detail_style)
     table_rows.append([Paragraph(f"Dimensions : {dim_str} cm", detail_style), right_coussins])
     # Ligne 2 : Mousse et éventuels traversins, coussins déco ou surmatelas
     # Construire le contenu de la colonne de droite : concaténer les lignes non vides avec des sauts de ligne
