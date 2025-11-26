@@ -536,6 +536,10 @@ with tab4:
         )
     has_surmatelas = st.checkbox("Surmatelas")
 
+    # Déterminer le nombre de traversins supplémentaires effectif selon les positions sélectionnées.
+    # Un traversin est comptabilisé pour chaque position activée (gauche, droite ou bas).
+    nb_traversins_effectif = len(traversins_positions) if traversins_positions else 0
+
 # ONGLET 5 : MOUSSE
 with tab5:
     st.markdown("### Paramètres de la mousse")
@@ -648,7 +652,8 @@ with tab6:
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
                         coussins=type_coussins,
-                        nb_traversins_supp=nb_traversins_supp,
+                        # nombre effectif de traversins basé sur les positions sélectionnées
+                        nb_traversins_supp=nb_traversins_effectif,
                         traversins_positions=traversins_positions,
                         couleurs=couleurs
                     )
@@ -662,7 +667,7 @@ with tab6:
                         'type_mousse': type_mousse, 'epaisseur': epaisseur,
                         'acc_left': acc_left, 'acc_right': acc_right, 'acc_bas': acc_bas,
                         'dossier_left': dossier_left, 'dossier_bas': dossier_bas, 'dossier_right': dossier_right,
-                        'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_supp,
+                        'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_effectif,
                         'has_surmatelas': has_surmatelas,
                         'has_meridienne': has_meridienne
                     }
@@ -726,7 +731,7 @@ with tab6:
                     alt_with_coussins_ht = price_ht_for({
                         'acc_left': False, 'acc_right': False, 'acc_bas': False,
                         'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
-                        'type_coussins': type_coussins, 'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_supp, 'has_surmatelas': has_surmatelas,
+                        'type_coussins': type_coussins, 'nb_coussins_deco': nb_coussins_deco, 'nb_traversins_supp': nb_traversins_effectif, 'has_surmatelas': has_surmatelas,
                         'type_mousse': 'D25'
                     })
                     price_coussins_total = max(0, alt_with_coussins_ht - alt_no_extras_ht)
@@ -742,7 +747,7 @@ with tab6:
                         type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_effectif,
                         has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
                         arrondis=arrondis
                     )
@@ -812,7 +817,7 @@ with tab6:
                         'acc_left': False, 'acc_right': False, 'acc_bas': False,
                         'dossier_left': False, 'dossier_bas': False, 'dossier_right': False,
                         'type_coussins': type_coussins,
-                        'nb_coussins_deco': 0, 'nb_traversins_supp': nb_traversins_supp, 'has_surmatelas': False,
+                        'nb_coussins_deco': 0, 'nb_traversins_supp': nb_traversins_effectif, 'has_surmatelas': False,
                         'type_mousse': 'D25'
                     })
                     price_traversins = max(0, alt_assise_traversins_ht - alt_only_assise_ht)
@@ -851,7 +856,7 @@ with tab6:
                     # Coussins décoratifs
                     breakdown_rows.append(("Coussins déco", nb_coussins_deco, f"{price_decoratif:.2f} €"))
                     # Traversins supplémentaires
-                    breakdown_rows.append(("Traversins", nb_traversins_supp, f"{price_traversins:.2f} €"))
+                    breakdown_rows.append(("Traversins", nb_traversins_effectif, f"{price_traversins:.2f} €"))
                     # Surmatelas
                     # Déterminer le nombre de surmatelas en se basant sur le total TTC renvoyé par
                     # ``calculer_prix_total``.  Lorsque l'option surmatelas est activée, la fonction
@@ -889,7 +894,7 @@ with tab6:
                         type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_effectif,
                         has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
                         arrondis=arrondis
                     )
@@ -991,7 +996,7 @@ with tab6:
                         type_coussins=type_coussins, type_mousse=type_mousse, epaisseur=epaisseur,
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_supp,
+                        nb_coussins_deco=nb_coussins_deco, nb_traversins_supp=nb_traversins_effectif,
                         has_surmatelas=has_surmatelas, has_meridienne=has_meridienne,
                         arrondis=arrondis
                     )
