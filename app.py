@@ -136,61 +136,167 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-def generer_schema_canape(type_canape, tx, ty, tz, profondeur, 
-                          acc_left, acc_right, acc_bas,
-                          dossier_left, dossier_bas, dossier_right,
-                          meridienne_side, meridienne_len, coussins="auto"):
-    """Génère le schéma du canapé"""
+def generer_schema_canape(
+    type_canape,
+    tx,
+    ty,
+    tz,
+    profondeur,
+    acc_left,
+    acc_right,
+    acc_bas,
+    dossier_left,
+    dossier_bas,
+    dossier_right,
+    meridienne_side,
+    meridienne_len,
+    coussins="auto",
+    nb_traversins_supp: int = 0,
+) -> plt.Figure:
+    """Génère le schéma du canapé.
+
+    Parameters
+    ----------
+    type_canape : str
+        Libellé du type de canapé (p. ex. "Simple (S)", "L - Sans Angle", etc.).
+    tx, ty, tz : int or None
+        Dimensions horizontales du canapé selon la configuration.
+    profondeur : int
+        Profondeur d'assise en centimètres.
+    acc_left, acc_right, acc_bas : bool
+        Indiquent la présence d'accoudoirs à gauche, à droite et en bas.
+    dossier_left, dossier_bas, dossier_right : bool
+        Indiquent la présence de dossiers sur les côtés.
+    meridienne_side : str or None
+        Côté de la méridienne ("g" ou "d"), ou None s'il n'y en a pas.
+    meridienne_len : int
+        Longueur de la méridienne en centimètres.
+    coussins : str or int
+        Mode d'optimisation des coussins ("auto", "65", "80", "80-90", "90", "valise", etc.).
+    nb_traversins_supp : int, optional
+        Nombre de traversins supplémentaires sélectionnés dans le formulaire. Si strictement positif,
+        des traversins seront dessinés selon la géométrie du canapé.  Par défaut, aucun traversin
+        n'est dessiné.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        La figure générée représentant le canapé.
+    """
     fig = plt.figure(figsize=(12, 8))
-    
+
     try:
+        # Initialiser la configuration des traversins uniquement si au moins un traversin
+        # supplémentaire est demandé.  Cela permet d'afficher les traversins sur le schéma
+        # uniquement lorsque l'utilisateur l'a explicitement indiqué dans le formulaire.
+        traversins_cfg: str | None = None
+        if nb_traversins_supp and nb_traversins_supp > 0:
+            # Déterminer la configuration par défaut en fonction du type de canapé.
+            if "Simple" in type_canape:
+                traversins_cfg = "g,d"
+            elif "L" in type_canape:
+                traversins_cfg = "g,b"
+            elif "U" in type_canape:
+                traversins_cfg = "g,b,d"
+
+        # Choisir la fonction de rendu appropriée en fonction du type de canapé.
         if "Simple" in type_canape:
             render_Simple1(
-                tx=tx, profondeur=profondeur, dossier=dossier_bas,
-                acc_left=acc_left, acc_right=acc_right,
-                meridienne_side=meridienne_side, meridienne_len=meridienne_len,
-                coussins=coussins, window_title="Canapé Simple"
+                tx=tx,
+                profondeur=profondeur,
+                dossier=dossier_bas,
+                acc_left=acc_left,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                window_title="Canapé Simple",
             )
         elif "L - Sans Angle" in type_canape:
             render_LNF(
-                tx=tx, ty=ty, profondeur=profondeur,
-                dossier_left=dossier_left, dossier_bas=dossier_bas,
-                acc_left=acc_left, acc_bas=acc_bas,
-                meridienne_side=meridienne_side, meridienne_len=meridienne_len,
-                coussins=coussins, variant="auto", window_title="Canapé L - Sans Angle"
+                tx=tx,
+                ty=ty,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                variant="auto",
+                window_title="Canapé L - Sans Angle",
             )
         elif "L - Avec Angle" in type_canape:
             render_LF_variant(
-                tx=tx, ty=ty, profondeur=profondeur,
-                dossier_left=dossier_left, dossier_bas=dossier_bas,
-                acc_left=acc_left, acc_bas=acc_bas,
-                meridienne_side=meridienne_side, meridienne_len=meridienne_len,
-                coussins=coussins, window_title="Canapé L - Avec Angle"
+                tx=tx,
+                ty=ty,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                window_title="Canapé L - Avec Angle",
             )
         elif "U - Sans Angle" in type_canape:
             render_U(
-                tx=tx, ty_left=ty, tz_right=tz, profondeur=profondeur,
-                dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                acc_left=acc_left, acc_bas=acc_bas, acc_right=acc_right,
-                coussins=coussins, variant="auto", window_title="Canapé U - Sans Angle"
+                tx=tx,
+                ty_left=ty,
+                tz_right=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                acc_right=acc_right,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                variant="auto",
+                window_title="Canapé U - Sans Angle",
             )
         elif "U - 1 Angle" in type_canape:
             render_U1F_v1(
-                tx=tx, ty=ty, tz=tz, profondeur=profondeur,
-                dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                acc_left=acc_left, acc_right=acc_right,
-                meridienne_side=meridienne_side, meridienne_len=meridienne_len,
-                coussins=coussins, window_title="Canapé U - 1 Angle"
+                tx=tx,
+                ty=ty,
+                tz=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                window_title="Canapé U - 1 Angle",
             )
         elif "U - 2 Angles" in type_canape:
             render_U2f_variant(
-                tx=tx, ty_left=ty, tz_right=tz, profondeur=profondeur,
-                dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
-                acc_left=acc_left, acc_bas=acc_bas, acc_right=acc_right,
-                meridienne_side=meridienne_side, meridienne_len=meridienne_len,
-                coussins=coussins, window_title="Canapé U - 2 Angles"
+                tx=tx,
+                ty_left=ty,
+                tz_right=tz,
+                profondeur=profondeur,
+                dossier_left=dossier_left,
+                dossier_bas=dossier_bas,
+                dossier_right=dossier_right,
+                acc_left=acc_left,
+                acc_bas=acc_bas,
+                acc_right=acc_right,
+                meridienne_side=meridienne_side,
+                meridienne_len=meridienne_len,
+                coussins=coussins,
+                traversins=traversins_cfg,
+                window_title="Canapé U - 2 Angles",
             )
-        
+
         fig = plt.gcf()
         # Supprimer tout titre ou supertitre afin d'éviter l'affichage du nom de variante dans les exports
         try:
@@ -406,7 +512,10 @@ with tab6:
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
-                        coussins=type_coussins
+                        coussins=type_coussins,
+                        # Afficher les traversins sur le schéma uniquement si
+                        # l'utilisateur a saisi au moins un traversin supplémentaire.
+                        nb_traversins_supp=nb_traversins_supp
                     )
 
                     # Préparer une fonction utilitaire pour calculer les prix HT
@@ -686,7 +795,10 @@ with tab6:
                         acc_left=acc_left, acc_right=acc_right, acc_bas=acc_bas,
                         dossier_left=dossier_left, dossier_bas=dossier_bas, dossier_right=dossier_right,
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
-                        coussins=type_coussins
+                        coussins=type_coussins,
+                        # Afficher les traversins sur le schéma uniquement si l'utilisateur
+                        # a saisi au moins un traversin supplémentaire
+                        nb_traversins_supp=nb_traversins_supp
                     )
                     
                     img_buffer = BytesIO()
