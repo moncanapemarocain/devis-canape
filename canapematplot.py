@@ -2624,19 +2624,10 @@ def build_polys_U2f(pts, tx, ty_left, tz_right, profondeur=DEPTH_STD,
 def _draw_cushions_U2f_optimized_wrapper(t, tr, pts, size, traversins=None):
     return _draw_cushions_U2f_optimized(t, tr, pts, size, traversins=traversins)
 
-# -----------------------------------------------------------------------------
-# Compatibility alias
-#
-# Earlier versions of this code used the French spelling
-# ``_draw_coussins_U2f_optimized_wrapper`` when drawing cushions for U2F
-# configurations.  Several call sites (particularly in the U2F rendering and
-# pricing logic) still refer to this older name.  Without an alias, Python
-# raises a ``NameError`` when the function is called.  To preserve backward
-# compatibility without rewriting all call sites, we define the French name as
-# a simple alias pointing to the canonical implementation above.
-
-# Create alias so both French and English spellings work identically.  See
-# canapematplot-4.py for a similar fix applied to the same issue.
+# ----------------------------------------------------------------------------
+# Compatibilité : certains appels historiques utilisent une orthographe
+# francisée ("coussins" au lieu de "cushions").  Afin d'éviter une
+# ``NameError`` lorsque ces noms sont invoqués, on crée un alias.
 _draw_coussins_U2f_optimized_wrapper = _draw_cushions_U2f_optimized_wrapper
 
 def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
@@ -2646,7 +2637,44 @@ def render_U2f_variant(tx, ty_left, tz_right, profondeur=DEPTH_STD,
                        coussins="auto",
                        traversins=None,
                        couleurs=None,
-                       window_title="U2F — variantes"):
+                       window_title="U2F — variantes",
+                       variant=None):
+    """
+    Rendu d’un canapé en U avec deux angles (U2F).  Les canapés U2F ne disposent
+    d’aucune variante (comme v1, v2, etc.), mais un paramètre ``variant`` est
+    accepté pour compatibilité et ignoré.  Toutes les autres options
+    déterminent la géométrie, la présence d’accoudoirs/dossiers, la méridienne
+    et l’optimisation des coussins.
+
+    Paramètres
+    ----------
+    tx, ty_left, tz_right : numérique
+        Dimensions des trois côtés (bas, gauche, droite) en centimètres.
+    profondeur : int, optionnel
+        Profondeur d’assise en cm (défaut : DEPTH_STD).
+    dossier_left, dossier_bas, dossier_right : bool, optionnel
+        Présence des dossiers à gauche, en bas et à droite.
+    acc_left, acc_bas, acc_right : bool, optionnel
+        Présence des accoudoirs à gauche, en bas et à droite.
+    meridienne_side : str ou None
+        'g' pour gauche ou 'd' pour droite ; une méridienne ne peut pas coexister
+        avec un accoudoir du même côté.  Valeur par défaut : None.
+    meridienne_len : int, optionnel
+        Longueur de la méridienne en cm.  Ignoré si ``meridienne_side`` est None.
+    coussins : str, optionnel
+        Mode d’optimisation des coussins.
+    traversins : str ou None, optionnel
+        Configuration des traversins.
+    couleurs : dict ou None, optionnel
+        Substitution de la palette de couleurs.
+    window_title : str, optionnel
+        Titre de la fenêtre matplotlib.
+    variant : any, optionnel
+        Paramètre ignoré destiné à maintenir la compatibilité avec des appels
+        qui fournissent à tort un variant pour U2F.  Il n’a aucun effet.
+    """
+    # Ignorer le paramètre variant ; aucune variante n’existe pour U2F
+    _ = variant
     if meridienne_side == 'g' and acc_left:
         raise ValueError("Erreur: une méridienne gauche ne peut pas coexister avec un accoudoir gauche.")
     if meridienne_side == 'd' and acc_right:
