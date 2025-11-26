@@ -198,12 +198,11 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         dossier_positions.append('gauche')
     if opts.get('dossier_right', False) or opts.get('dossier_droite', False):
         dossier_positions.append('droite')
+    # Si des dossiers sont présents (peu importe leur nombre ou position), afficher « Avec », sinon « Sans »
     if len(dossier_positions) == 0:
         dossier_txt = 'Sans'
-    elif len(dossier_positions) == 3:
-        dossier_txt = 'Avec'
     else:
-        dossier_txt = ', '.join(dossier_positions)
+        dossier_txt = 'Avec'
 
     # En-tête client uniquement : ne pas afficher dimensions/confort/dossiers/accoudoirs ici
     client = config.get('client', {})
@@ -330,6 +329,29 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     else:
         taille_coussins = str(type_coussins)
 
+    # Préparer des lignes supplémentaires pour traversins, coussins déco et surmatelas dans le tableau récapitulatif.
+    traversins_line = ""
+    deco_line = ""
+    surmatelas_line = ""
+    # Les informations détaillées se trouvent dans prix_details['calculation_details'] (si disponible)
+    details_list = prix_details.get('calculation_details', None)
+    if details_list:
+        try:
+            for entry in details_list:
+                cat = entry.get('category', '').lower()
+                item = entry.get('item', '').lower()
+                qty = entry.get('quantity', 0)
+                if cat == 'traversin' and qty:
+                    # Les traversins ont des dimensions fixes 70x30 cm
+                    traversins_line = f"Traversins : {qty} traversin{'s' if qty > 1 else ''} de 70x30cm"
+                elif cat == 'surmatelas' and qty:
+                    # Les surmatelas sont spécifiés comme "surmatelas confort" dans le devis
+                    surmatelas_line = f"Surmatelas : {qty} surmatelas confort"
+                elif cat == 'cushion' and 'déco' in item and qty:
+                    deco_line = f"Coussins déco : {qty}"
+        except Exception:
+            pass
+
     # === Construction de la section « Détail du devis » ===
     # Création d'un tableau ligne par ligne pour aligner correctement les informations de gauche et de droite.
     table_rows = []
@@ -342,9 +364,20 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     else:
         right_coussins = Paragraph("Coussins : -", detail_style)
     table_rows.append([Paragraph(f"Dimensions : {dim_str} cm", detail_style), right_coussins])
-    # Ligne 2 : Mousse et Livraison
-    # La colonne de droite ne contient plus la mention de livraison, elle est laissée vide
-    table_rows.append([Paragraph(f"Mousse : {mousse_type}", detail_style), Paragraph("", detail_style)])
+    # Ligne 2 : Mousse et éventuels traversins, coussins déco ou surmatelas
+    # Construire le contenu de la colonne de droite : concaténer les lignes non vides avec des sauts de ligne
+    extra_lines = []
+    if traversins_line:
+        extra_lines.append(traversins_line)
+    if deco_line:
+        extra_lines.append(deco_line)
+    if surmatelas_line:
+        extra_lines.append(surmatelas_line)
+    right_second_cell_content = "<br/>".join(extra_lines) if extra_lines else ""
+    table_rows.append([
+        Paragraph(f"Mousse : {mousse_type}", detail_style),
+        Paragraph(right_second_cell_content, detail_style)
+    ])
     # Ligne 3 : Accoudoirs et Réduction
     table_rows.append([Paragraph(f"Accoudoirs : {acc_txt}", detail_style), Paragraph(f"Réduction : {reduction_ttc_val:.2f} €", detail_style)])
     # Ligne 4 : Dossiers et Prix final
