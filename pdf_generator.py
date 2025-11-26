@@ -118,7 +118,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         col_gauche = []
         col_gauche.append(Paragraph("Il faut savoir que le tarif comprend :", footer_header_style))
         inclus_items = [
-            "Livraison bas d'immeuble",
+            # "Livraison bas d'immeuble" a été retiré conformément aux spécifications
             "Fabrication 100% artisanale France",
             "Choix du tissu n'impacte pas le devis",
             "Paiement 2 à 6 fois sans frais",
@@ -165,7 +165,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     # =================== CONTENU DU DOCUMENT ===================
     
     # 1. TITRE et INFOS HAUTES
-    elements.append(Paragraph("MON CANAPÉ MAROCAIN", title_style))
+    # Le titre principal "MON CANAPÉ MAROCAIN" est omis selon les directives.
     
     # Préparation des informations générales pour la suite
     type_canape = config.get('type_canape', '')
@@ -186,7 +186,8 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
         acc_count += 1
     if config.get('options', {}).get('acc_right', False):
         acc_count += 1
-    acc_txt = str(acc_count)
+    # Afficher "Avec" s'il y a au moins un accoudoir, sinon "Sans"
+    acc_txt = "Avec" if acc_count > 0 else "Sans"
 
     # Déterminer les positions de dossiers : bas, gauche, droite
     opts = config.get('options', {})
@@ -336,18 +337,22 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     table_rows.append([Paragraph("Détail du devis :", column_header_style), Paragraph("", detail_style)])
     # Ligne 1 : Dimensions et Coussins
     if nb_coussins_assise is not None:
-        right_coussins = Paragraph(f"Coussins : {nb_coussins_assise} coussins de dossiers de {taille_coussins}", detail_style)
+        # Afficher le nombre de coussins suivi d'un « x » et de la taille
+        right_coussins = Paragraph(f"Coussins : {nb_coussins_assise} x {taille_coussins}", detail_style)
     else:
         right_coussins = Paragraph("Coussins : -", detail_style)
     table_rows.append([Paragraph(f"Dimensions : {dim_str} cm", detail_style), right_coussins])
     # Ligne 2 : Mousse et Livraison
-    table_rows.append([Paragraph(f"Mousse : {mousse_type}", detail_style), Paragraph("Livraison en bas d'immuble : <b>gratuite</b>", detail_style)])
+    # La colonne de droite ne contient plus la mention de livraison, elle est laissée vide
+    table_rows.append([Paragraph(f"Mousse : {mousse_type}", detail_style), Paragraph("", detail_style)])
     # Ligne 3 : Accoudoirs et Réduction
     table_rows.append([Paragraph(f"Accoudoirs : {acc_txt}", detail_style), Paragraph(f"Réduction : {reduction_ttc_val:.2f} €", detail_style)])
     # Ligne 4 : Dossiers et Prix final
     table_rows.append([Paragraph(f"Dossiers : {dossier_txt}", detail_style), Paragraph(f"Prix canapé d'angle : <b>{montant_ttc}</b>", detail_style)])
     # Ligne 5 : Profondeur et Prix avant réduction
-    table_rows.append([Paragraph("Profondeur : 70cm d'assise", detail_style), Paragraph(f"Prix avant réduction : {prix_avant_reduc}", detail_style)])
+    # Affichage de la profondeur issue de la configuration sans précision « d'assise »
+    profondeur_val = dims.get('profondeur', 0)
+    table_rows.append([Paragraph(f"Profondeur : {profondeur_val}cm", detail_style), Paragraph(f"Prix avant réduction : {prix_avant_reduc}", detail_style)])
     devis_table = Table(table_rows, colWidths=[9.5 * cm, 9.5 * cm])
     devis_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
