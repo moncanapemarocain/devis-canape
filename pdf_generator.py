@@ -400,10 +400,24 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
             pass
     # Construire la chaîne descriptive si des données sont disponibles
     if cushion_counts:
-        # Trier les tailles par ordre numérique pour plus de lisibilité
+        # Trier les tailles par ordre numérique si possible (ex : 65cm, 80cm, 90cm),
+        # puis placer les libellés non numériques (valise, petit modèle, grand modèle) à la fin.
+        import re  # import local pour trier les libellés de coussins
+        def _cushion_sort_key(label: str):
+            m = re.match(r'^(\d+(?:\.\d+)?)cm$', label)
+            if m:
+                # Clé numérique pour tri ascendant
+                return (0, float(m.group(1)))
+            # Les libellés non numériques (valise, petit modèle, grand modèle) sont classés après
+            return (1, label)
         parts = []
-        for size in sorted(cushion_counts.keys(), key=lambda x: float(x)):
-            parts.append(f"{cushion_counts[size]} x {size}cm")
+        for size in sorted(cushion_counts.keys(), key=_cushion_sort_key):
+            # Préparer l'affichage : pour les tailles numériques, séparer la valeur et l'unité ; sinon utiliser le libellé tel quel
+            if re.match(r'^(\d+(?:\.\d+)?)cm$', size):
+                disp = f"{size[:-2]} cm"
+            else:
+                disp = size
+            parts.append(f"{cushion_counts[size]} x {disp}")
         coussins_descr = ", ".join(parts)
     else:
         # Si aucun détail, utiliser le nombre et la taille des coussins saisis
