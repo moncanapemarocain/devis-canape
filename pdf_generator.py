@@ -412,12 +412,22 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
             return (1, label)
         parts = []
         for size in sorted(cushion_counts.keys(), key=_cushion_sort_key):
-            # Préparer l'affichage : pour les tailles numériques, séparer la valeur et l'unité ; sinon utiliser le libellé tel quel
-            if re.match(r'^(\d+(?:\.\d+)?)cm$', size):
-                disp = f"{size[:-2]} cm"
+            qty = cushion_counts[size]
+            # Si le label n'est pas numérique (valise, petit modèle, grand modèle),
+            # répartir les coussins sur deux tailles standards (64 cm et 66 cm) par moitié.
+            if not re.match(r'^(\d+(?:\.\d+)?)cm$', size):
+                # Répartition des coussins : moitié vers 64 cm, le reste vers 66 cm
+                half1 = qty // 2
+                half2 = qty - half1
+                # Ajouter uniquement si les quantités sont non nulles
+                if half1 > 0:
+                    parts.append(f"{half1} x 64 cm")
+                if half2 > 0:
+                    parts.append(f"{half2} x 66 cm")
             else:
-                disp = size
-            parts.append(f"{cushion_counts[size]} x {disp}")
+                # Taille numérique -> séparer valeur et unité
+                disp = f"{size[:-2]} cm"
+                parts.append(f"{qty} x {disp}")
         coussins_descr = ", ".join(parts)
     else:
         # Si aucun détail, utiliser le nombre et la taille des coussins saisis
