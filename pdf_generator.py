@@ -329,6 +329,12 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
     else:
         taille_coussins = str(type_coussins)
 
+    # Déterminer l'étiquette de la ligne coussins. Pour les modèles valise/petit/grand, on utilise
+    # « Coussins valises » afin de refléter le type choisi ; sinon « Coussins ».
+    coussins_label = "Coussins"
+    if type_coussins in ['valise', 'p', 'g']:
+        coussins_label = "Coussins valises"
+
     # Préparer des lignes supplémentaires pour traversins, coussins déco et surmatelas dans le tableau récapitulatif.
     traversins_line = ""
     deco_line = ""
@@ -371,16 +377,25 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
                     # Ignorer les coussins déco
                     if 'déco' in item_name:
                         continue
-                    # Extraire la taille en cm depuis le nom, ex : 'coussin 80 cm'
+                    # Déterminer un identifiant de taille : soit une valeur numérique (avant 'cm'), soit 'valise', 'petit modèle' ou 'grand modèle'
                     parts = item_name.split()
-                    # La taille est typiquement l'élément juste avant 'cm'
-                    size_cm = None
-                    for i, p in enumerate(parts):
-                        if p.replace('cm','').isdigit():
-                            size_cm = p.replace('cm', '')
+                    size_label = None
+                    # Chercher une taille numérique
+                    for p in parts:
+                        t = p.replace('cm', '')
+                        if t.isdigit():
+                            size_label = f"{t}cm"
                             break
-                    if size_cm and qty:
-                        cushion_counts[size_cm] = cushion_counts.get(size_cm, 0) + qty
+                    # Si aucune taille numérique trouvée, identifier les coussins spéciaux
+                    if size_label is None:
+                        if 'valise' in item_name:
+                            size_label = 'valise'
+                        elif 'petit' in item_name:
+                            size_label = 'petit modèle'
+                        elif 'grand' in item_name:
+                            size_label = 'grand modèle'
+                    if size_label and qty:
+                        cushion_counts[size_label] = cushion_counts.get(size_label, 0) + qty
         except Exception:
             pass
     # Construire la chaîne descriptive si des données sont disponibles
@@ -396,7 +411,7 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
             coussins_descr = f"{nb_coussins_assise} x {taille_coussins}"
         else:
             coussins_descr = "-"
-    right_coussins = Paragraph(f"Coussins : {coussins_descr}", detail_style)
+    right_coussins = Paragraph(f"{coussins_label} : {coussins_descr}", detail_style)
     table_rows.append([Paragraph(f"Dimensions : {dim_str} cm", detail_style), right_coussins])
     # Ligne 2 : Mousse et éventuels traversins, coussins déco ou surmatelas
     # Construire le contenu de la colonne de droite : concaténer les lignes non vides avec des sauts de ligne
