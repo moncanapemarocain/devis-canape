@@ -20,6 +20,20 @@ from canapematplot import (
     render_Simple1
 )
 
+# Palette de couleurs pour la personnalisation du schéma.
+# Les clés sont les libellés proposés à l'utilisateur et les valeurs sont
+# des codes hexadécimaux (ou ``None`` pour représenter la transparence).
+COLOR_CHOICES = {
+    "Transparent": None,
+    "Blanc": "#ffffff",
+    "Beige": "#d8c4a8",
+    "Crème": "#f4f1e9",
+    "Taupe": "#8B7E74",
+    "Gris foncé": "#4b4b4b",
+    "Gris clair": "#b8b8b8",
+    "Marron clair": "#A67B5B",
+}
+
 # Configuration de la page
 st.set_page_config(
     page_title="Configurateur Canapé Marocain",
@@ -153,6 +167,7 @@ def generer_schema_canape(
     coussins="auto",
     nb_traversins_supp: int = 0,
     traversins_positions: list[str] | None = None,
+    couleurs: dict | None = None,
 ) -> plt.Figure:
     """Génère le schéma du canapé.
 
@@ -178,6 +193,12 @@ def generer_schema_canape(
         Nombre de traversins supplémentaires sélectionnés dans le formulaire. Si strictement positif,
         des traversins seront dessinés selon la géométrie du canapé.  Par défaut, aucun traversin
         n'est dessiné.
+
+    couleurs : dict, optional
+        Dictionnaire de couleurs personnalisées à appliquer au schéma.  Les clés attendues
+        sont "accoudoirs", "dossiers", "assise" et "coussins".  Les valeurs peuvent être
+        un code hexadécimal (par exemple "#d8c4a8") ou ``None`` pour une transparence.  Si
+        ``None`` ou omis, la palette par défaut est appliquée.
 
     Returns
     -------
@@ -233,6 +254,7 @@ def generer_schema_canape(
                 meridienne_len=meridienne_len,
                 coussins=coussins,
                 traversins=traversins_cfg,
+                couleurs=couleurs,
                 window_title="Canapé Simple",
             )
         elif "L - Sans Angle" in type_canape:
@@ -249,6 +271,7 @@ def generer_schema_canape(
                 coussins=coussins,
                 traversins=traversins_cfg,
                 variant="auto",
+                couleurs=couleurs,
                 window_title="Canapé L - Sans Angle",
             )
         elif "L - Avec Angle" in type_canape:
@@ -264,6 +287,7 @@ def generer_schema_canape(
                 meridienne_len=meridienne_len,
                 coussins=coussins,
                 traversins=traversins_cfg,
+                couleurs=couleurs,
                 window_title="Canapé L - Avec Angle",
             )
         elif "U - Sans Angle" in type_canape:
@@ -281,6 +305,7 @@ def generer_schema_canape(
                 coussins=coussins,
                 traversins=traversins_cfg,
                 variant="auto",
+                couleurs=couleurs,
                 window_title="Canapé U - Sans Angle",
             )
         elif "U - 1 Angle" in type_canape:
@@ -298,6 +323,7 @@ def generer_schema_canape(
                 meridienne_len=meridienne_len,
                 coussins=coussins,
                 traversins=traversins_cfg,
+                couleurs=couleurs,
                 window_title="Canapé U - 1 Angle",
             )
         elif "U - 2 Angles" in type_canape:
@@ -316,6 +342,7 @@ def generer_schema_canape(
                 meridienne_len=meridienne_len,
                 coussins=coussins,
                 traversins=traversins_cfg,
+                couleurs=couleurs,
                 window_title="Canapé U - 2 Angles",
             )
 
@@ -349,8 +376,8 @@ st.markdown("---")
 
 # Création des onglets avec la nouvelle structure :
 # 1 : Type, 2 : Dimensions, 3 : Structure (anciennement Options),
-# 4 : Coussins, 5 : Mousse (anciennement Matériaux), 6 : Client.
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Type", "Dimensions", "Structure", "Coussins", "Mousse", "Client"])
+# 4 : Coussins, 5 : Mousse (anciennement Matériaux), 6 : Couleurs, 7 : Client.
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Type", "Dimensions", "Structure", "Coussins", "Mousse", "Couleurs", "Client"])
 
 # ONGLET 1: TYPE
 with tab1:
@@ -490,8 +517,37 @@ with tab5:
     with col2:
         st.info("Les options de tissus seront affichées après validation de la configuration")
 
-# ONGLET 6 : CLIENT
+# ONGLET 6 : COULEURS
 with tab6:
+    st.markdown("### Couleurs du schéma")
+    st.markdown(
+        "Sélectionnez les couleurs de la structure, des banquettes/mousses et des coussins. "
+        "Par défaut, la structure et les banquettes sont transparentes et les coussins sont beiges."
+    )
+    # Sélection de la couleur de la structure (accoudoirs et dossiers)
+    structure_choice = st.selectbox(
+        "Couleur de la structure (accoudoirs et dossiers)",
+        list(COLOR_CHOICES.keys()),
+        index=list(COLOR_CHOICES.keys()).index("Transparent"),
+        key="structure_color_choice"
+    )
+    # Sélection de la couleur des banquettes/mousses
+    banquette_choice = st.selectbox(
+        "Couleur des banquettes/mousses",
+        list(COLOR_CHOICES.keys()),
+        index=list(COLOR_CHOICES.keys()).index("Transparent"),
+        key="banquette_color_choice"
+    )
+    # Sélection de la couleur des coussins
+    cushion_choice = st.selectbox(
+        "Couleur des coussins",
+        list(COLOR_CHOICES.keys()),
+        index=list(COLOR_CHOICES.keys()).index("Beige"),
+        key="cushion_color_choice"
+    )
+
+# ONGLET 7 : CLIENT
+with tab7:
     st.markdown("### Informations Client")
     st.markdown("Renseignez les coordonnées du client pour finaliser le devis")
     
@@ -546,6 +602,29 @@ with tab6:
             with st.spinner("Génération du schéma en cours..."):
                 try:
                     # Générer le schéma avec les paramètres actuels
+                    # Détermination de la palette de couleurs sélectionnée par l'utilisateur.
+                    struct_choice = st.session_state.get('structure_color_choice', 'Transparent')
+                    assise_choice = st.session_state.get('banquette_color_choice', 'Transparent')
+                    cush_choice = st.session_state.get('cushion_color_choice', 'Beige')
+                    # Pour la structure : si transparent, on utilise une chaîne vide plutôt que None afin
+                    # d'éviter un éclaircissement automatique dans _resolve_and_apply_colors.
+                    struct_val = COLOR_CHOICES.get(struct_choice)
+                    if struct_val is None:
+                        acc_val = ""
+                        dos_val = ""
+                    else:
+                        acc_val = struct_val
+                        dos_val = struct_val
+                    assise_val = COLOR_CHOICES.get(assise_choice)
+                    # None est autorisé pour l'assise (banquette) pour représenter une transparence.
+                    assise_val = assise_val if assise_val is not None else None
+                    coussin_val = COLOR_CHOICES.get(cush_choice)
+                    couleurs = {
+                        'accoudoirs': acc_val,
+                        'dossiers': dos_val,
+                        'assise': assise_val,
+                        'coussins': coussin_val,
+                    }
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -555,7 +634,8 @@ with tab6:
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
                         coussins=type_coussins,
                         nb_traversins_supp=nb_traversins_supp,
-                        traversins_positions=traversins_positions
+                        traversins_positions=traversins_positions,
+                        couleurs=couleurs
                     )
 
                     # Préparer une fonction utilitaire pour calculer les prix HT
@@ -828,6 +908,26 @@ with tab6:
         if st.button("📄 Générer le Devis PDF", type="primary", use_container_width=True):
             with st.spinner("Création du PDF en cours..."):
                 try:
+                    # Préparation de la palette de couleurs pour le schéma PDF
+                    struct_choice = st.session_state.get('structure_color_choice', 'Transparent')
+                    assise_choice = st.session_state.get('banquette_color_choice', 'Transparent')
+                    cush_choice = st.session_state.get('cushion_color_choice', 'Beige')
+                    struct_val = COLOR_CHOICES.get(struct_choice)
+                    if struct_val is None:
+                        acc_val = ""
+                        dos_val = ""
+                    else:
+                        acc_val = struct_val
+                        dos_val = struct_val
+                    assise_val = COLOR_CHOICES.get(assise_choice)
+                    assise_val = assise_val if assise_val is not None else None
+                    coussin_val = COLOR_CHOICES.get(cush_choice)
+                    couleurs = {
+                        'accoudoirs': acc_val,
+                        'dossiers': dos_val,
+                        'assise': assise_val,
+                        'coussins': coussin_val,
+                    }
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -837,7 +937,8 @@ with tab6:
                         meridienne_side=meridienne_side, meridienne_len=meridienne_len,
                         coussins=type_coussins,
                         nb_traversins_supp=nb_traversins_supp,
-                        traversins_positions=traversins_positions
+                        traversins_positions=traversins_positions,
+                        couleurs=couleurs
                     )
                     
                     img_buffer = BytesIO()
