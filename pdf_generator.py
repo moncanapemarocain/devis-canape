@@ -400,42 +400,48 @@ def generer_pdf_devis(config, prix_details, schema_image=None, breakdown_rows=No
             pass
     # Construire la chaîne descriptive si des données sont disponibles
     if cushion_counts:
-        # Trier les tailles par ordre numérique si possible (ex : 65cm, 80cm, 90cm),
-        # puis placer les libellés non numériques (valise, petit modèle, grand modèle) à la fin.
+        # Trier les tailles par ordre numérique si possible (ex : 65cm, 80cm, 90cm)
         import re  # import local pour trier les libellés de coussins
+
         def _cushion_sort_key(label: str):
             m = re.match(r'^(\d+(?:\.\d+)?)cm$', label)
             if m:
-                # Clé numérique pour tri ascendant
                 return (0, float(m.group(1)))
-            # Les libellés non numériques (valise, petit modèle, grand modèle) sont classés après
             return (1, label)
-        parts = []
-        for size in sorted(cushion_counts.keys(), key=_cushion_sort_key):
-            qty = cushion_counts[size]
-            # Si le label n'est pas numérique (valise, petit modèle, grand modèle),
-            # répartir les coussins sur deux tailles standards (64 cm et 66 cm) par moitié.
-            if not re.match(r'^(\d+(?:\.\d+)?)cm$', size):
-                # Répartition des coussins : moitié vers 64 cm, le reste vers 66 cm
-                half1 = qty // 2
-                half2 = qty - half1
-                # Ajouter uniquement si les quantités sont non nulles
-                if half1 > 0:
-                    parts.append(f"{half1} x 64 cm")
-                if half2 > 0:
-                    parts.append(f"{half2} x 66 cm")
-            else:
-                # Taille numérique -> séparer valeur et unité
-                disp = f"{size[:-2]} cm"
-                parts.append(f"{qty} x {disp}")
-        coussins_descr = ", ".join(parts)
+
+        # Identifier si des coussins spéciaux (non numériques) existent
+        total_special = 0
+        for key, qty in cushion_counts.items():
+            if not re.match(r'^(\d+(?:\.\d+)?)cm$', key):
+                total_special += qty
+
+        # Si le type de coussins est valise/p/g et qu'il existe des coussins spéciaux,
+        # afficher simplement « n coussins valises sur mesure ».
+        if total_special > 0 and type_coussins in ['valise', 'p', 'g']:
+            coussins_descr = f"{total_special} coussins valises sur mesure"
+        else:
+            parts = []
+            for size in sorted(cushion_counts.keys(), key=_cushion_sort_key):
+                qty = cushion_counts[size]
+                if re.match(r'^(\d+(?:\.\d+)?)cm$', size):
+                    disp = f"{size[:-2]} cm"
+                    parts.append(f"{qty} x {disp}")
+                else:
+                    # Pour les libellés non numériques restants, utiliser le libellé tel quel
+                    parts.append(f"{qty} x {size}")
+            coussins_descr = ", ".join(parts)
     else:
         # Si aucun détail, utiliser le nombre et la taille des coussins saisis
         if nb_coussins_assise is not None:
             coussins_descr = f"{nb_coussins_assise} x {taille_coussins}"
         else:
             coussins_descr = "-"
-    right_coussins = Paragraph(f"{coussins_label} : {coussins_descr}", detail_style)
+    # Si modèle valise/p/g et description spéciale (par exemple « 6 coussins valises sur mesure »),
+    # on affiche directement la description sans préfixe
+    if type_coussins in ['valise', 'p', 'g'] and coussins_descr.endswith("sur mesure"):
+        right_coussins = Paragraph(coussins_descr, detail_style)
+    else:
+        right_coussins = Paragraph(f"{coussins_label} : {coussins_descr}", detail_style)
     table_rows.append([Paragraph(f"Dimensions : {dim_str} cm", detail_style), right_coussins])
     # Ligne 2 : Mousse et éventuels traversins, coussins déco ou surmatelas
     # Construire le contenu de la colonne de droite : concaténer les lignes non vides avec des sauts de ligne
