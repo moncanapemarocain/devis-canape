@@ -182,14 +182,15 @@ st.markdown("""
     /* Fond principal */
     .stApp {
         background-color: #FBF6EF;
-        /* Supprimer la marge supérieure afin d'accoler les onglets au haut de la page */
-        padding-top: 0px;
-        margin-top: 0px;
+        /* Réduire la marge supérieure : seulement 20 % de la marge par défaut.  
+           Nous appliquons un léger padding en haut pour conserver une fine bande d'espacement. */
+        padding-top: 0.6rem;
+        margin-top: 0;
     }
 
-    /* Réduire également le padding du conteneur principal */
+    /* Réduire également le padding du conteneur principal tout en conservant un léger espace */
     div.block-container {
-        padding-top: 0px;
+        padding-top: 0.6rem;
     }
     
     /* Titres */
@@ -1128,7 +1129,8 @@ with tab6:
                     st.success("✅ Schéma généré avec succès !")
                     # Convertir la figure en image et appliquer la rotation si nécessaire
                     img_preview = BytesIO()
-                    fig.savefig(img_preview, format="png", bbox_inches="tight", dpi=150)
+                    # Augmenter le DPI pour une meilleure netteté de l'aperçu
+                    fig.savefig(img_preview, format="png", bbox_inches="tight", dpi=200)
                     img_preview.seek(0)
                     # Récupérer l'angle de rotation choisi (0, 90, 180 ou 270)
                     rotation_angle = st.session_state.get("schema_rotation", 0)
@@ -1238,7 +1240,8 @@ with tab6:
                         canapematplot._MplTurtle.write = original_write_pdf
                     # Sauvegarde de l'image en mémoire
                     tmp_buffer = BytesIO()
-                    fig.savefig(tmp_buffer, format='png', bbox_inches='tight', dpi=150)
+                    # Augmenter le DPI pour le PDF afin d'améliorer la qualité du schéma
+                    fig.savefig(tmp_buffer, format='png', bbox_inches='tight', dpi=200)
                     tmp_buffer.seek(0)
                     # Fermeture de la figure
                     plt.close(fig)
@@ -1428,7 +1431,8 @@ with st.spinner("Mise à jour du schéma en cours..."):
 
         # Convertir la figure en image et appliquer la rotation globale
         preview_buffer = BytesIO()
-        fig_preview.savefig(preview_buffer, format="png", bbox_inches="tight", dpi=150)
+        # Augmenter le DPI pour l'aperçu global afin d'améliorer la définition sans trop alourdir le temps de calcul
+        fig_preview.savefig(preview_buffer, format="png", bbox_inches="tight", dpi=200)
         preview_buffer.seek(0)
         plt.close(fig_preview)
         pil_preview = Image.open(preview_buffer)
