@@ -670,7 +670,9 @@ with tab4:
     #  - Simple : gauche/droite
     #  - L (LF/LNF) : gauche/bas
     #  - U : gauche/droite/bas (le bas est parfois inopérant selon la variante)
+    # Réinitialiser la liste des positions de traversins
     traversins_positions = []
+    # Si l'utilisateur a demandé des traversins supplémentaires, proposer les positions possibles selon la forme du canapé.
     if nb_traversins_supp > 0:
         if "Simple" in st.session_state.type_canape:
             trav_options = ["Gauche", "Droite"]
@@ -684,13 +686,13 @@ with tab4:
             default=trav_options,
             help="Sélectionnez où placer les traversins supplémentaires"
         )
-
     # Calculer le nombre effectif de traversins en fonction des positions sélectionnées.
     # Si aucune position n'est sélectionnée, considérer qu'il n'y a pas de traversin supplémentaire.
-        if traversins_positions:
-            nb_traversins_effectif = len(traversins_positions)
-        else:
-            nb_traversins_effectif = 0
+    if traversins_positions:
+        nb_traversins_effectif = len(traversins_positions)
+    else:
+        nb_traversins_effectif = 0
+    # Option surmatelas (hors du bloc précédent pour toujours proposer la case)
     has_surmatelas = st.checkbox("Surmatelas")
 
     # Mémoriser dans la session les informations liées aux coussins et traversins
