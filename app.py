@@ -502,7 +502,6 @@ if 'profondeur' not in st.session_state:
 # Les titres initiaux sont retirés pour laisser plus de place au formulaire et à l’aperçu.
 st.markdown("", unsafe_allow_html=True)
 st.markdown("", unsafe_allow_html=True)
-st.markdown("---")
 
 # Création des onglets avec la nouvelle structure :
 # 1 : Type, 2 : Dimensions, 3 : Structure (anciennement Options),
@@ -786,7 +785,6 @@ with tab6:
     st.session_state['show_detail_devis'] = show_detail_devis
     st.session_state['show_detail_cr'] = show_detail_cr
 
-    st.markdown("---")
     st.markdown("### Actions")
 
     col1, col2 = st.columns(2)
@@ -1315,7 +1313,6 @@ with tab6:
 
 # Footer
 # La signature du configurateur est supprimée pour libérer de l’espace.
-st.markdown("---")
 st.markdown("", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
@@ -1323,11 +1320,10 @@ st.markdown("", unsafe_allow_html=True)
 #
 # Afin que l'aperçu du canapé soit visible dans tous les onglets, nous plaçons
 # ci‑dessous un bloc qui génère et affiche le schéma à partir des paramètres
-# saisis dans les onglets précédents.  Ce bloc est exécuté à chaque
+# saisis dans les ongets précédents.  Ce bloc est exécuté à chaque
 # rafraîchissement de l'application et se met donc à jour automatiquement
 # lorsque l'utilisateur modifie le formulaire.
 
-st.markdown("---")
 # Titre de l’aperçu supprimé pour optimiser l’espace
 
 # Créer un conteneur pour l'aperçu afin qu'il soit visible sous tous les onglets.
@@ -1433,13 +1429,14 @@ with st.spinner("Mise à jour du schéma en cours..."):
         if rotation_angle_preview % 360 in (90, 180, 270):
             pil_preview = pil_preview.rotate(rotation_angle_preview, expand=True)
 
-        # Réduire légèrement la taille du schéma si nécessaire et centrer l'image.
-        max_width = 600
-        if pil_preview.width > max_width:
-            ratio_resize = max_width / pil_preview.width
+        # Réduire la taille du schéma d'environ 30 % pour optimiser l'affichage.
+        ratio_resize = 0.7
+        try:
             new_size = (int(pil_preview.width * ratio_resize), int(pil_preview.height * ratio_resize))
             pil_preview = pil_preview.resize(new_size)
-        # Créer trois colonnes pour centrer l'image : un espace vide à gauche et à droite.
+        except Exception:
+            pass  # En cas d'échec du redimensionnement, on garde la taille originale
+        # Créer trois colonnes pour centrer l'image : un espace vide à gauche et à droite.
         left_space, img_col, right_space = st.columns([1, 6, 1])
         with img_col:
             st.image(pil_preview, use_container_width=True)
