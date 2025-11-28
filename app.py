@@ -1429,8 +1429,9 @@ with st.spinner("Mise à jour du schéma en cours..."):
         if rotation_angle_preview % 360 in (90, 180, 270):
             pil_preview = pil_preview.rotate(rotation_angle_preview, expand=True)
 
-        # Réduire la taille du schéma d'environ 30 % pour optimiser l'affichage.
-        ratio_resize = 0.7
+        # Réduire la taille du schéma pour qu'il tienne mieux sur la page.
+        # Le client souhaite réduire la taille de moitié, on utilise donc un ratio de 0.5.
+        ratio_resize = 0.5
         try:
             new_size = (int(pil_preview.width * ratio_resize), int(pil_preview.height * ratio_resize))
             pil_preview = pil_preview.resize(new_size)
