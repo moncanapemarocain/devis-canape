@@ -604,6 +604,16 @@ with tab6:
     st.session_state['show_detail_devis'] = show_detail_devis
     st.session_state['show_detail_cr'] = show_detail_cr
 
+    # Option de rotation du schéma du canapé dans l'aperçu et le PDF
+    # Permet à l'utilisateur de choisir une rotation de 0°, 90° ou 180° (sens anti-horaire)
+    rotation_angle = st.selectbox(
+        "Rotation du schéma du canapé (PDF / Aperçu)",
+        options=[0, 90, 180],
+        format_func=lambda x: f"{x}°",
+        key="schema_rotation"
+    )
+    # La valeur sélectionnée sera disponible via st.session_state['schema_rotation']
+
     st.markdown("---")
     st.markdown("### Actions")
 
@@ -910,8 +920,24 @@ with tab6:
 
                     # Affichage du schéma et d'un résumé simplifié du devis
                     st.success("✅ Schéma généré avec succès !")
-                    st.pyplot(fig)
-                    plt.close()
+                    # Convertir la figure en image (BytesIO) pour pouvoir la faire pivoter si nécessaire
+                    img_preview = BytesIO()
+                    fig.savefig(img_preview, format="png", bbox_inches="tight", dpi=150)
+                    img_preview.seek(0)
+                    # Récupérer l'angle de rotation choisi (0, 90 ou 180 degrés)
+                    rotation_angle = st.session_state.get("schema_rotation", 0)
+                    if rotation_angle in (90, 180):
+                        image = Image.open(img_preview)
+                        # Rotation anti-horaire; utiliser -rotation_angle pour une rotation horaire
+                        image = image.rotate(rotation_angle, expand=True)
+                        img_rotated = BytesIO()
+                        image.save(img_rotated, format="PNG")
+                        img_rotated.seek(0)
+                        img_preview = img_rotated
+                    # Afficher l'image, qui est désormais éventuellement pivotée
+                    st.image(img_preview, use_container_width=True)
+                    # Fermer la figure pour libérer la mémoire
+                    plt.close(fig)
                     st.markdown("### 🧾 Résumé du devis", unsafe_allow_html=True)
                     st.markdown(f"**Prix de vente TTC total avant réduction :** {prix_ttc_total_avant_remise:.2f} €")
                     if reduction_ttc and reduction_ttc > 0:
@@ -981,6 +1007,17 @@ with tab6:
                     img_buffer = BytesIO()
                     fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
                     img_buffer.seek(0)
+                    # Appliquer la rotation éventuelle du schéma pour le PDF selon le choix de l'utilisateur
+                    rotation_angle = st.session_state.get("schema_rotation", 0)
+                    if rotation_angle in (90, 180):
+                        img_pdf = Image.open(img_buffer)
+                        # Rotation anti-horaire; utilisez -rotation_angle pour sens horaire
+                        img_pdf = img_pdf.rotate(rotation_angle, expand=True)
+                        img_rotated = BytesIO()
+                        img_pdf.save(img_rotated, format="PNG")
+                        img_rotated.seek(0)
+                        img_buffer = img_rotated
+                    # Fermer la figure originale
                     plt.close(fig)
                     
                     config = {
