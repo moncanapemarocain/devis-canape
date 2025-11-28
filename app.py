@@ -6,7 +6,111 @@ Compatible Streamlit Cloud - Utilise canapematplot.py
 import streamlit as st
 import matplotlib.pyplot as plt
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+
+# Import complet du module canapematplot pour pouvoir désactiver certains
+# dessins (flèches et étiquettes) lorsque l'on souhaite enlever les
+# dimensions du schéma.  On importe le module complet afin de pouvoir
+# modifier temporairement ses fonctions internes avant de générer le
+# schéma.
+import canapematplot
+
+def overlay_dimension_text(image: Image.Image, type_canape: str, tx: int | None, ty: int | None, tz: int | None, profondeur: int | None, angle: int) -> Image.Image:
+    """
+    Ajoute une légende des dimensions (par exemple « 200 x 90 cm ») autour
+    de l'image du canapé.  La légende est pivotée du même angle que le
+    schéma afin de conserver la cohérence visuelle.  Si l'angle est 0 ou
+    180 degrés, la légende est placée en dessous du schéma ; pour 90
+    degrés, elle est placée à droite ; et pour 270 degrés, à gauche.
+
+    Parameters
+    ----------
+    image : PIL.Image
+        Image du schéma déjà pivotée si nécessaire.
+    type_canape : str
+        Libellé du type de canapé (ex : "Simple", "L - Sans Angle", etc.).
+    tx, ty, tz : int or None
+        Longueurs des banquettes selon la configuration.
+    profondeur : int
+        Profondeur d'assise.
+    angle : int
+        Angle de rotation appliqué au schéma (0, 90, 180 ou 270).
+
+    Returns
+    -------
+    PIL.Image
+        Nouvelle image avec la légende ajoutée.
+    """
+    # Déterminer les dimensions à afficher selon le type de canapé
+    dims: list[int] = []
+    tc = type_canape or ""
+    if "U" in tc:
+        # Ordre d'affichage : profondeur de la partie de gauche (ty), longueur principale (tx), longueur droite (tz)
+        dims = [d for d in (ty, tx, tz) if d]
+    elif "L" in tc:
+        # Canapé en L : deux longueurs
+        dims = [d for d in (ty, tx) if d]
+    else:
+        # Canapé simple : longueur et profondeur d'assise
+        dims = [d for d in (tx, profondeur) if d]
+    # Construire la chaîne de dimensions (sans unité pour toutes sauf la dernière)
+    if dims:
+        # Exemple : [200, 90, 80] -> "200 x 90 x 80 cm"
+        parts = [str(d) for d in dims]
+        text = " x ".join(parts) + " cm"
+    else:
+        text = ""
+    # Sélectionner une taille de police proportionnelle à la taille de l'image
+    # pour que la légende reste lisible même après redimensionnement du PDF.
+    try:
+        # On utilise DejaVuSans s'il est disponible
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        base_size = max(14, int(min(image.width, image.height) * 0.04))
+        font = ImageFont.truetype(font_path, base_size)
+    except Exception:
+        font = ImageFont.load_default()
+    # Créer une image pour le texte
+    dummy = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    draw_dummy = ImageDraw.Draw(dummy)
+    text_w, text_h = draw_dummy.textsize(text, font=font)
+    text_img = Image.new("RGBA", (text_w, text_h), (255, 255, 255, 0))
+    draw_text = ImageDraw.Draw(text_img)
+    draw_text.text((0, 0), text, fill="black", font=font)
+    # Tourner la légende du même angle que l'image
+    rotated_text = text_img.rotate(angle, expand=True)
+    # Selon l'angle, on ajoute la légende en bas, à droite ou à gauche
+    if angle % 360 in (0, 180):
+        # légende horizontale en bas
+        new_w = max(image.width, rotated_text.width)
+        new_h = image.height + rotated_text.height
+        new_img = Image.new("RGBA", (new_w, new_h), (255, 255, 255, 0))
+        # centrer le schéma horizontalement
+        offset_x = (new_w - image.width) // 2
+        new_img.paste(image, (offset_x, 0), image.convert("RGBA"))
+        # centrer la légende horizontalement
+        offset_tx = (new_w - rotated_text.width) // 2
+        new_img.paste(rotated_text, (offset_tx, image.height), rotated_text)
+    elif angle % 360 == 90:
+        # légende verticale à droite
+        new_w = image.width + rotated_text.width
+        new_h = max(image.height, rotated_text.height)
+        new_img = Image.new("RGBA", (new_w, new_h), (255, 255, 255, 0))
+        # centrer le schéma verticalement
+        offset_y = (new_h - image.height) // 2
+        new_img.paste(image, (0, offset_y), image.convert("RGBA"))
+        # centrer la légende verticalement
+        offset_ty = (new_h - rotated_text.height) // 2
+        new_img.paste(rotated_text, (image.width, offset_ty), rotated_text)
+    else:  # 270°
+        # légende verticale à gauche
+        new_w = image.width + rotated_text.width
+        new_h = max(image.height, rotated_text.height)
+        new_img = Image.new("RGBA", (new_w, new_h), (255, 255, 255, 0))
+        offset_y = (new_h - image.height) // 2
+        new_img.paste(image, (rotated_text.width, offset_y), image.convert("RGBA"))
+        offset_ty = (new_h - rotated_text.height) // 2
+        new_img.paste(rotated_text, (0, offset_ty), rotated_text)
+    return new_img.convert("RGB")
 from typing import Optional, Dict
 
 # Palette de couleurs personnalisable pour le rendu du schéma.
@@ -600,19 +704,26 @@ with tab6:
         help="Lorsque cette option est cochée, la page 3 du PDF affichera le tableau complet des calculs du coût de revient."
     )
 
-    # Stocker les choix dans la session pour les utiliser lors de la génération du PDF
-    st.session_state['show_detail_devis'] = show_detail_devis
-    st.session_state['show_detail_cr'] = show_detail_cr
-
-    # Option de rotation du schéma du canapé dans l'aperçu et le PDF
-    # Permet à l'utilisateur de choisir une rotation de 0°, 90° ou 180° (sens anti-horaire)
+    # ---------------------------------------------------------------------
+    # Option de rotation du schéma
+    #
+    # Afin de pouvoir pivoter le schéma du canapé dans l'aperçu et dans
+    # le PDF, nous proposons à l'utilisateur de sélectionner un angle
+    # parmi 0°, 90°, 180° et 270°.  Le paramètre `key` permet de stocker
+    # automatiquement la valeur sélectionnée dans `st.session_state` sous
+    # la clé ``schema_rotation``.  Cette valeur sera ensuite lue lors de la
+    # génération du schéma pour appliquer la rotation et déterminer si
+    # les dimensions intégrées doivent être masquées.
     rotation_angle = st.selectbox(
         "Rotation du schéma du canapé (PDF / Aperçu)",
-        options=[0, 90, 180],
+        options=[0, 90, 180, 270],
         format_func=lambda x: f"{x}°",
         key="schema_rotation"
     )
-    # La valeur sélectionnée sera disponible via st.session_state['schema_rotation']
+
+    # Stocker les choix dans la session pour les utiliser lors de la génération du PDF
+    st.session_state['show_detail_devis'] = show_detail_devis
+    st.session_state['show_detail_cr'] = show_detail_cr
 
     st.markdown("---")
     st.markdown("### Actions")
@@ -656,6 +767,37 @@ with tab6:
                         'coussins': cous_val,
                     }
 
+                    # Déterminer l'angle choisi pour la rotation et si l'on doit masquer les
+                    # dimensions intégrées du schéma (pour éviter qu'elles soient pivotées).
+                    rotation_angle = st.session_state.get("schema_rotation", 0)
+                    hide_dims = rotation_angle not in (0,)
+                    # Calcul des dimensions à afficher éventuellement dans la légende externe
+                    # (liste simplement conservée pour la suite). Même si elle n'est pas
+                    # utilisée directement dans la génération du schéma, elle pourra servir
+                    # lors de l'ajout de la légende.
+                    dims_for_overlay = []
+                    tc_overlay = st.session_state.type_canape
+                    if "U" in tc_overlay:
+                        dims_for_overlay = [st.session_state.ty, st.session_state.tx, st.session_state.tz]
+                    elif "L" in tc_overlay:
+                        dims_for_overlay = [st.session_state.ty, st.session_state.tx]
+                    else:
+                        dims_for_overlay = [st.session_state.tx, st.session_state.profondeur]
+                    # Si nous devons masquer les dimensions, on remplace temporairement les
+                    # fonctions de dessin des flèches et des étiquettes du module
+                    # canapematplot par des fonctions neutres.
+                    original_funcs = {}
+                    if hide_dims:
+                        original_funcs['draw_double_arrow_vertical_cm'] = canapematplot.draw_double_arrow_vertical_cm
+                        original_funcs['draw_double_arrow_horizontal_cm'] = canapematplot.draw_double_arrow_horizontal_cm
+                        original_funcs['_label_backrests_armrests'] = canapematplot._label_backrests_armrests
+                        original_funcs['label_poly'] = canapematplot.label_poly
+                        original_funcs['label_poly_offset_cm'] = canapematplot.label_poly_offset_cm
+                        canapematplot.draw_double_arrow_vertical_cm = lambda *args, **kwargs: None
+                        canapematplot.draw_double_arrow_horizontal_cm = lambda *args, **kwargs: None
+                        canapematplot._label_backrests_armrests = lambda *args, **kwargs: None
+                        canapematplot.label_poly = lambda *args, **kwargs: None
+                        canapematplot.label_poly_offset_cm = lambda *args, **kwargs: None
                     # Générer le schéma avec les paramètres actuels
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
@@ -669,6 +811,10 @@ with tab6:
                         traversins_positions=traversins_positions,
                         couleurs=couleurs
                     )
+                    # Restaurer les fonctions originales si elles ont été modifiées
+                    if hide_dims:
+                        for name, func in original_funcs.items():
+                            setattr(canapematplot, name, func)
 
                     # Préparer une fonction utilitaire pour calculer les prix HT
                     base_params = {
@@ -920,23 +1066,36 @@ with tab6:
 
                     # Affichage du schéma et d'un résumé simplifié du devis
                     st.success("✅ Schéma généré avec succès !")
-                    # Convertir la figure en image (BytesIO) pour pouvoir la faire pivoter si nécessaire
+                    # Convertir la figure en image et appliquer la rotation et la légende si nécessaire
                     img_preview = BytesIO()
                     fig.savefig(img_preview, format="png", bbox_inches="tight", dpi=150)
                     img_preview.seek(0)
-                    # Récupérer l'angle de rotation choisi (0, 90 ou 180 degrés)
+                    # Récupérer l'angle de rotation choisi (0, 90, 180 ou 270)
                     rotation_angle = st.session_state.get("schema_rotation", 0)
-                    if rotation_angle in (90, 180):
-                        image = Image.open(img_preview)
-                        # Rotation anti-horaire; utiliser -rotation_angle pour une rotation horaire
-                        image = image.rotate(rotation_angle, expand=True)
-                        img_rotated = BytesIO()
-                        image.save(img_rotated, format="PNG")
-                        img_rotated.seek(0)
-                        img_preview = img_rotated
-                    # Afficher l'image, qui est désormais éventuellement pivotée
-                    st.image(img_preview, use_container_width=True)
-                    # Fermer la figure pour libérer la mémoire
+                    hide_dims = rotation_angle not in (0,)
+                    # Ouvrir l'image pour appliquer les transformations
+                    pil_img = Image.open(img_preview)
+                    # Appliquer la rotation si nécessaire
+                    if rotation_angle % 360 in (90, 180, 270):
+                        pil_img = pil_img.rotate(rotation_angle, expand=True)
+                    # Ajouter une légende des dimensions si l'on a masqué les dimensions internes
+                    if hide_dims:
+                        pil_img = overlay_dimension_text(
+                            pil_img,
+                            st.session_state.type_canape,
+                            st.session_state.tx,
+                            st.session_state.ty,
+                            st.session_state.tz,
+                            st.session_state.profondeur,
+                            rotation_angle
+                        )
+                    # Convertir l'image finale en buffer pour l'affichage dans Streamlit
+                    out_buf = BytesIO()
+                    pil_img.save(out_buf, format="PNG")
+                    out_buf.seek(0)
+                    # Afficher l'image dans l'application
+                    st.image(out_buf, use_container_width=True)
+                    # Fermer la figure matplotlib pour libérer la mémoire
                     plt.close(fig)
                     st.markdown("### 🧾 Résumé du devis", unsafe_allow_html=True)
                     st.markdown(f"**Prix de vente TTC total avant réduction :** {prix_ttc_total_avant_remise:.2f} €")
@@ -990,6 +1149,27 @@ with tab6:
                         'assise': ass_val,
                         'coussins': cous_val,
                     }
+                    # Déterminer l'angle choisi pour la rotation du schéma et si l'on doit
+                    # masquer les dimensions internes. Une rotation non nulle implique
+                    # que l'on préfère ajouter les dimensions à l'extérieur du schéma.
+                    rotation_angle = st.session_state.get("schema_rotation", 0)
+                    hide_dims_pdf = rotation_angle not in (0,)
+                    # Si on masque les dimensions internes, on remplace temporairement
+                    # les fonctions de dessin des flèches et des étiquettes dans
+                    # canapematplot par des fonctions neutres.
+                    original_funcs_pdf = {}
+                    if hide_dims_pdf:
+                        original_funcs_pdf['draw_double_arrow_vertical_cm'] = canapematplot.draw_double_arrow_vertical_cm
+                        original_funcs_pdf['draw_double_arrow_horizontal_cm'] = canapematplot.draw_double_arrow_horizontal_cm
+                        original_funcs_pdf['_label_backrests_armrests'] = canapematplot._label_backrests_armrests
+                        original_funcs_pdf['label_poly'] = canapematplot.label_poly
+                        original_funcs_pdf['label_poly_offset_cm'] = canapematplot.label_poly_offset_cm
+                        canapematplot.draw_double_arrow_vertical_cm = lambda *args, **kwargs: None
+                        canapematplot.draw_double_arrow_horizontal_cm = lambda *args, **kwargs: None
+                        canapematplot._label_backrests_armrests = lambda *args, **kwargs: None
+                        canapematplot.label_poly = lambda *args, **kwargs: None
+                        canapematplot.label_poly_offset_cm = lambda *args, **kwargs: None
+                    # Générer le schéma PDF avec les paramètres actuels
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -1003,22 +1183,36 @@ with tab6:
                         traversins_positions=traversins_positions,
                         couleurs=couleurs
                     )
-                    
-                    img_buffer = BytesIO()
-                    fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
-                    img_buffer.seek(0)
-                    # Appliquer la rotation éventuelle du schéma pour le PDF selon le choix de l'utilisateur
-                    rotation_angle = st.session_state.get("schema_rotation", 0)
-                    if rotation_angle in (90, 180):
-                        img_pdf = Image.open(img_buffer)
-                        # Rotation anti-horaire; utilisez -rotation_angle pour sens horaire
-                        img_pdf = img_pdf.rotate(rotation_angle, expand=True)
-                        img_rotated = BytesIO()
-                        img_pdf.save(img_rotated, format="PNG")
-                        img_rotated.seek(0)
-                        img_buffer = img_rotated
-                    # Fermer la figure originale
+                    # Restaurer les fonctions originales après la génération
+                    if hide_dims_pdf:
+                        for name, func in original_funcs_pdf.items():
+                            setattr(canapematplot, name, func)
+                    # Sauvegarde de l'image en mémoire
+                    tmp_buffer = BytesIO()
+                    fig.savefig(tmp_buffer, format='png', bbox_inches='tight', dpi=150)
+                    tmp_buffer.seek(0)
+                    # Fermeture de la figure
                     plt.close(fig)
+                    # Conversion en PIL.Image pour appliquer la rotation et la légende
+                    pil_pdf_img = Image.open(tmp_buffer)
+                    # Appliquer la rotation
+                    if rotation_angle % 360 in (90, 180, 270):
+                        pil_pdf_img = pil_pdf_img.rotate(rotation_angle, expand=True)
+                    # Ajouter la légende si nécessaire
+                    if hide_dims_pdf:
+                        pil_pdf_img = overlay_dimension_text(
+                            pil_pdf_img,
+                            st.session_state.type_canape,
+                            st.session_state.tx,
+                            st.session_state.ty,
+                            st.session_state.tz,
+                            st.session_state.profondeur,
+                            rotation_angle
+                        )
+                    # Reconvertir en BytesIO pour l'injection dans le PDF
+                    img_buffer = BytesIO()
+                    pil_pdf_img.save(img_buffer, format='PNG')
+                    img_buffer.seek(0)
                     
                     config = {
                         'type_canape': st.session_state.type_canape,
