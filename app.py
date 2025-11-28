@@ -183,7 +183,7 @@ st.markdown("""
     .stApp {
         background-color: #FBF6EF;
     }
-
+    
     /* Titres */
     h1, h2, h3 {
         color: #372E2B !important;
@@ -192,7 +192,7 @@ st.markdown("""
     p {
         color: #8C6F63 !important;
     }
-
+    
     /* Onglets */
     .stTabs [data-baseweb="tab-list"] {
         gap: 2px;
@@ -200,7 +200,7 @@ st.markdown("""
         padding: 10px;
         border-radius: 10px;
     }
-
+    
     .stTabs [data-baseweb="tab"] {
         background-color: #EDE7DE;
         color: #8C6F63;
@@ -209,13 +209,13 @@ st.markdown("""
         font-weight: 500;
         border: none;
     }
-
+    
     .stTabs [aria-selected="true"] {
         background-color: #FBF6EF !important;
         color: #8C6F63 !important;
         font-weight: 600;
     }
-
+    
     /* Champs de saisie */
     .stTextInput input, .stNumberInput input, .stSelectbox select {
         background-color: #EDE7DE !important;
@@ -223,16 +223,16 @@ st.markdown("""
         border: 1px solid #D5CFC6 !important;
         border-radius: 8px !important;
     }
-
+    
     .stTextInput label, .stNumberInput label, .stSelectbox label {
         color: #8C6F63 !important;
         font-weight: 500;
     }
 
     div.st-an {
-        background-color : red
+        background-color : red 
     }
-
+    
     /* Checkbox */
     .stCheckbox label {
         color: #8C6F63 !important;
@@ -241,7 +241,7 @@ st.markdown("""
     div.st-emotion-cache-1q82h82.e1wr3kle3 {
         color: black;
     }
-
+    
     /* Boutons normaux */
     .stButton button {
         background-color: #EDE7DE !important;
@@ -252,17 +252,17 @@ st.markdown("""
         font-weight: 500 !important;
         transition: all 0.3s ease;
     }
-
+    
     .stButton button:hover {
         background-color: #D5CFC6 !important;
         transform: translateY(-2px);
     }
 
-
+    
     .stButton button[kind="primary"]:hover {
         background-color: #D5CFC6 !important;
     }
-
+    
     /* Conteneurs */
     .stContainer {
         background-color: #FFFFFF;
@@ -270,14 +270,14 @@ st.markdown("""
         padding: 20px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }
-
+    
     /* Messages */
     .stSuccess {
         background-color: #D4EDDA !important;
         color: #155724 !important;
         border-radius: 8px;
     }
-
+    
     .stError {
         background-color: #F8D7DA !important;
         color: #721C24 !important;
@@ -498,9 +498,10 @@ if 'tz' not in st.session_state:
 if 'profondeur' not in st.session_state:
     st.session_state.profondeur = 70
 
-# En-tête
-st.title("Configurez votre canapé marocain personnalisé")
-st.markdown("Créez votre canapé marocain personnalisé et obtenez un devis instantané")
+# En-tête supprimé
+# Les titres initiaux sont retirés pour laisser plus de place au formulaire et à l’aperçu.
+st.markdown("", unsafe_allow_html=True)
+st.markdown("", unsafe_allow_html=True)
 st.markdown("---")
 
 # Création des onglets avec la nouvelle structure :
@@ -546,10 +547,10 @@ with tab7:
 # ONGLET 1: TYPE
 with tab1:
     st.markdown("### Sélectionnez le type de canapé")
-
+    
     type_canape = st.selectbox(
         "Type de canapé",
-        ["Simple (S)", "L - Sans Angle", "L - Avec Angle (LF)",
+        ["Simple (S)", "L - Sans Angle", "L - Avec Angle (LF)", 
          "U - Sans Angle", "U - 1 Angle (U1F)", "U - 2 Angles (U2F)"],
         key="type_canape"
     )
@@ -557,9 +558,9 @@ with tab1:
 # ONGLET 2: DIMENSIONS
 with tab2:
     st.markdown("### Dimensions du canapé (en cm)")
-
+    
     col1, col2 = st.columns(2)
-
+    
     with col1:
         if "Simple" in st.session_state.type_canape:
             tx = st.number_input("Largeur (Tx)", min_value=100, max_value=600, value=280, step=10, key="tx")
@@ -572,7 +573,7 @@ with tab2:
             tx = st.number_input("Largeur bas (Tx)", min_value=100, max_value=600, value=450, step=10, key="tx")
             ty = st.number_input("Hauteur gauche (Ty)", min_value=100, max_value=600, value=300, step=10, key="ty")
             tz = st.number_input("Hauteur droite (Tz)", min_value=100, max_value=600, value=280, step=10, key="tz")
-
+    
     with col2:
         profondeur = st.number_input("Profondeur d'assise", min_value=50, max_value=120, value=70, step=5, key="profondeur")
 
@@ -655,7 +656,7 @@ with tab3:
 # ONGLET 4 : COUSSINS
 with tab4:
     st.markdown("### Composition des coussins")
-
+    
     # Les éléments liés aux coussins étaient auparavant dans les options ; ils sont déplacés ici.
     type_coussins = st.selectbox(
         "Type de coussins",
@@ -706,9 +707,9 @@ with tab4:
 # ONGLET 5 : MOUSSE
 with tab5:
     st.markdown("### Paramètres de la mousse")
-
+    
     col1, col2 = st.columns(2)
-
+    
     with col1:
         type_mousse = st.selectbox("Type de mousse", ["D25", "D30", "HR35", "HR45"])
         epaisseur = st.number_input("Épaisseur (cm)", min_value=15, max_value=35, value=25, step=5)
@@ -718,7 +719,7 @@ with tab5:
         st.session_state['type_mousse'] = type_mousse
         st.session_state['epaisseur'] = epaisseur
         st.session_state['arrondis'] = arrondis
-
+    
     with col2:
         st.info("Les options de tissus seront affichées après validation de la configuration")
 
@@ -726,18 +727,18 @@ with tab5:
 with tab6:
     st.markdown("### Informations Client")
     st.markdown("Renseignez les coordonnées du client pour finaliser le devis")
-
+    
     col_client1, col_client2 = st.columns(2)
-
+    
     with col_client1:
         # Le nom du client n'est plus obligatoire : on retire l'astérisque et on laisse le champ facultatif
         nom_client = st.text_input("Nom du client", placeholder="Entrez le nom du client")
         telephone_client = st.text_input("N° de téléphone", placeholder="06 12 34 56 78")
-
+    
     with col_client2:
         email_client = st.text_input("Email (optionnel)", placeholder="client@example.com")
         departement_client = st.text_input("Département", placeholder="Ex: Nord (59)")
-
+    
     if email_client:
         st.info("L'email permet d'envoyer le devis au client")
 
@@ -1247,7 +1248,7 @@ with tab6:
                     img_buffer = BytesIO()
                     pil_pdf_img.save(img_buffer, format='PNG')
                     img_buffer.seek(0)
-
+                    
                     config = {
                         'type_canape': st.session_state.type_canape,
                         'dimensions': {'tx': st.session_state.tx, 'ty': st.session_state.ty, 'tz': st.session_state.tz, 'profondeur': st.session_state.profondeur},
@@ -1260,7 +1261,7 @@ with tab6:
                         },
                         'client': {'nom': nom_client, 'email': email_client, 'telephone': telephone_client, 'departement': departement_client}
                     }
-
+                    
                     prix_details = calculer_prix_total(
                         type_canape=st.session_state.type_canape,
                         tx=st.session_state.tx, ty=st.session_state.ty, tz=st.session_state.tz,
@@ -1288,7 +1289,7 @@ with tab6:
 
                     # Récupération du tableau détaillé du devis depuis la session
                     breakdown_rows = st.session_state.get('breakdown_rows', None)
-
+                    
                     pdf_buffer = generer_pdf_devis(
                         config,
                         prix_details,
@@ -1298,27 +1299,24 @@ with tab6:
                         show_detail_devis=st.session_state.get('show_detail_devis', False),
                         show_detail_cr=st.session_state.get('show_detail_cr', False)
                     )
-
+                    
                     st.download_button(
                         label="⬇️ Télécharger le Devis PDF",
                         data=pdf_buffer,
                         file_name=f"devis_canape_{(nom_client or 'client').replace(' ', '_')}.pdf",
                         mime="application/pdf"
                     )
-
+                    
                     st.success("✅ PDF généré avec succès !")
-
+                    
                 except Exception as e:
                     st.error(f"❌ Erreur : {str(e)}")
 
 
 # Footer
+# La signature du configurateur est supprimée pour libérer de l’espace.
 st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #8C6F63;'>
-    <p>🛋️ Configurateur de Canapé Marocain Sur Mesure</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Aperçu global du schéma en bas de page
@@ -1330,7 +1328,7 @@ st.markdown("""
 # lorsque l'utilisateur modifie le formulaire.
 
 st.markdown("---")
-st.subheader("Aperçu du canapé")
+# Titre de l’aperçu supprimé pour optimiser l’espace
 
 # Créer un conteneur pour l'aperçu afin qu'il soit visible sous tous les onglets.
 with st.spinner("Mise à jour du schéma en cours..."):
@@ -1435,12 +1433,15 @@ with st.spinner("Mise à jour du schéma en cours..."):
         if rotation_angle_preview % 360 in (90, 180, 270):
             pil_preview = pil_preview.rotate(rotation_angle_preview, expand=True)
 
-        # Afficher l'aperçu du canapé dans une colonne plus étroite afin
-        # d'harmoniser la taille de l'image avec le reste de la page.  On
-        # utilise un ratio de 3/5 pour le schéma et 2/5 d'espace vide à
-        # droite.  Le schéma s'adapte ainsi à la largeur de la colonne.
-        preview_col, _ = st.columns([3, 2])
-        with preview_col:
+        # Réduire légèrement la taille du schéma si nécessaire et centrer l'image.
+        max_width = 600
+        if pil_preview.width > max_width:
+            ratio_resize = max_width / pil_preview.width
+            new_size = (int(pil_preview.width * ratio_resize), int(pil_preview.height * ratio_resize))
+            pil_preview = pil_preview.resize(new_size)
+        # Créer trois colonnes pour centrer l'image : un espace vide à gauche et à droite.
+        left_space, img_col, right_space = st.columns([1, 6, 1])
+        with img_col:
             st.image(pil_preview, use_container_width=True)
 
     except Exception as e:
