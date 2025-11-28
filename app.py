@@ -69,13 +69,39 @@ def overlay_dimension_text(image: Image.Image, type_canape: str, tx: int | None,
         font = ImageFont.truetype(font_path, base_size)
     except Exception:
         font = ImageFont.load_default()
-    # Créer une image pour le texte
+    # Créer une image pour le texte et déterminer sa taille.
+    # Pillow version 10 a supprimé la méthode `ImageDraw.textsize`. Pour une
+    # compatibilité maximale, on tente d’utiliser `ImageDraw.textbbox` (Pillow ≥ 8.3)
+    # ou bien `ImageFont.getsize`.  Si tout échoue, on retombe sur un calcul
+    # approximatif.
     dummy = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
     draw_dummy = ImageDraw.Draw(dummy)
-    text_w, text_h = draw_dummy.textsize(text, font=font)
-    text_img = Image.new("RGBA", (text_w, text_h), (255, 255, 255, 0))
-    draw_text = ImageDraw.Draw(text_img)
-    draw_text.text((0, 0), text, fill="black", font=font)
+    try:
+        # textbbox retourne (x0, y0, x1, y1)
+        bbox = draw_dummy.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+    except Exception:
+        # fallbacks selon la version de Pillow
+        try:
+            text_w, text_h = font.getsize(text)
+        except Exception:
+            try:
+                # méthode textlength ne fournit que la largeur, estimons la hauteur
+                text_w = draw_dummy.textlength(text, font=font)
+                # hauteur approximative basée sur la taille de la police
+                text_h = int(font.size * 1.2)
+            except Exception:
+                # Valeurs par défaut si aucune méthode n'est disponible
+                text_w, text_h = 0, 0
+    # Si le texte est vide, ne pas créer d'image
+    if text_w > 0 and text_h > 0:
+        text_img = Image.new("RGBA", (text_w, text_h), (255, 255, 255, 0))
+        draw_text = ImageDraw.Draw(text_img)
+        draw_text.text((0, 0), text, fill="black", font=font)
+    else:
+        # Aucun texte ou taille indéterminée, image transparente vide
+        text_img = Image.new("RGBA", (1, 1), (255, 255, 255, 0))
     # Tourner la légende du même angle que l'image
     rotated_text = text_img.rotate(angle, expand=True)
     # Selon l'angle, on ajoute la légende en bas, à droite ou à gauche
