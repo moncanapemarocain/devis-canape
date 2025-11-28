@@ -182,6 +182,14 @@ st.markdown("""
     /* Fond principal */
     .stApp {
         background-color: #FBF6EF;
+        /* Supprimer la marge supérieure afin d'accoler les onglets au haut de la page */
+        padding-top: 0px;
+        margin-top: 0px;
+    }
+
+    /* Réduire également le padding du conteneur principal */
+    div.block-container {
+        padding-top: 0px;
     }
     
     /* Titres */
@@ -554,6 +562,17 @@ with tab1:
         key="type_canape"
     )
 
+    # Sélecteur pour l'angle de rotation du schéma.
+    # En proposant 0°, 90°, 180° et 270°, l'utilisateur peut choisir l'orientation
+    # qui lui convient aussi bien pour l'aperçu que pour le PDF.  La valeur est
+    # stockée dans la session afin d'être utilisée lors de la génération des schémas.
+    rotation_angle = st.selectbox(
+        "Rotation du schéma du canapé (PDF / Aperçu)",
+        options=[0, 90, 180, 270],
+        format_func=lambda x: f"{x}°",
+        key="schema_rotation"
+    )
+
 # ONGLET 2: DIMENSIONS
 with tab2:
     st.markdown("### Dimensions du canapé (en cm)")
@@ -765,21 +784,9 @@ with tab6:
     )
 
     # ---------------------------------------------------------------------
-    # Option de rotation du schéma
-    #
-    # Afin de pouvoir pivoter le schéma du canapé dans l'aperçu et dans
-    # le PDF, nous proposons à l'utilisateur de sélectionner un angle
-    # parmi 0°, 90°, 180° et 270°.  Le paramètre `key` permet de stocker
-    # automatiquement la valeur sélectionnée dans `st.session_state` sous
-    # la clé ``schema_rotation``.  Cette valeur sera ensuite lue lors de la
-    # génération du schéma pour appliquer la rotation et déterminer si
-    # les dimensions intégrées doivent être masquées.
-    rotation_angle = st.selectbox(
-        "Rotation du schéma du canapé (PDF / Aperçu)",
-        options=[0, 90, 180, 270],
-        format_func=lambda x: f"{x}°",
-        key="schema_rotation"
-    )
+    # Note : L'option de rotation du schéma est désormais définie dans l'onglet « Type ».  
+    # Le selectbox correspondant y a été déplacé afin d'être directement accessible
+    # lorsque l'utilisateur choisit le type de canapé.
 
     # Stocker les choix dans la session pour les utiliser lors de la génération du PDF
     st.session_state['show_detail_devis'] = show_detail_devis
@@ -1429,9 +1436,11 @@ with st.spinner("Mise à jour du schéma en cours..."):
         if rotation_angle_preview % 360 in (90, 180, 270):
             pil_preview = pil_preview.rotate(rotation_angle_preview, expand=True)
 
-        # Réduire la taille du schéma pour qu'il tienne mieux sur la page.
-        # Le client souhaite réduire la taille de moitié, on utilise donc un ratio de 0.5.
-        ratio_resize = 0.5
+        # Réduire la taille du schéma.  Après feedback utilisateur, nous diminuons
+        # davantage la taille pour qu'elle soit environ 30 % plus petite que
+        # la version précédente.  En partant d'un ratio de 0.5, nous appliquons
+        # à nouveau une réduction de 30 %, soit un ratio final de 0.35.
+        ratio_resize = 0.35
         try:
             new_size = (int(pil_preview.width * ratio_resize), int(pil_preview.height * ratio_resize))
             pil_preview = pil_preview.resize(new_size)
@@ -1439,7 +1448,9 @@ with st.spinner("Mise à jour du schéma en cours..."):
             pass  # En cas d'échec du redimensionnement, on garde la taille originale
         # Créer trois colonnes pour centrer l'image : un espace vide à gauche et à droite.
         # L'image est affichée à sa taille réelle (sans `use_container_width`) pour éviter qu'elle ne soit agrandie.
-        left_space, img_col, right_space = st.columns([1, 6, 1])
+        # Créer trois colonnes pour centrer l'image : un espace vide plus large
+        # à gauche et à droite pour que l'image réduite soit visuellement centrée.
+        left_space, img_col, right_space = st.columns([2, 5, 2])
         with img_col:
             # Utiliser la largeur réelle de l'image pour le paramètre `width` garantit qu'elle ne sera pas étirée.
             st.image(pil_preview, width=pil_preview.width)
