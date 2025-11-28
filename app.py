@@ -757,8 +757,9 @@ with tab6:
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("👁️ Générer l'Aperçu", use_container_width=True):
-            with st.spinner("Génération du schéma en cours..."):
+        # Aperçu en direct : le schéma est mis à jour automatiquement à chaque changement de saisie
+        if True:
+            with st.spinner("Mise à jour du schéma en cours..."):
                 try:
                     # Préparer le dictionnaire de couleurs à partir des choix de l'utilisateur
                     try:
