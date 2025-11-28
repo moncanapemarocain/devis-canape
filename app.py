@@ -793,37 +793,29 @@ with tab6:
                         'coussins': cous_val,
                     }
 
-                    # Déterminer l'angle choisi pour la rotation et si l'on doit masquer les
-                    # dimensions intégrées du schéma (pour éviter qu'elles soient pivotées).
+                    # Déterminer l'angle choisi pour la rotation.  Si cet angle
+                    # est non nul, on pivote le texte des dimensions dans le schéma
+                    # en sens inverse afin qu'il reste lisible après la rotation
+                    # globale de l'image.  Pour cela, on remplace temporairement
+                    # la méthode _MplTurtle.write de canapematplot de façon à
+                    # fournir un paramètre ``rotation`` négatif.
                     rotation_angle = st.session_state.get("schema_rotation", 0)
-                    hide_dims = rotation_angle not in (0,)
-                    # Calcul des dimensions à afficher éventuellement dans la légende externe
-                    # (liste simplement conservée pour la suite). Même si elle n'est pas
-                    # utilisée directement dans la génération du schéma, elle pourra servir
-                    # lors de l'ajout de la légende.
-                    dims_for_overlay = []
-                    tc_overlay = st.session_state.type_canape
-                    if "U" in tc_overlay:
-                        dims_for_overlay = [st.session_state.ty, st.session_state.tx, st.session_state.tz]
-                    elif "L" in tc_overlay:
-                        dims_for_overlay = [st.session_state.ty, st.session_state.tx]
-                    else:
-                        dims_for_overlay = [st.session_state.tx, st.session_state.profondeur]
-                    # Si nous devons masquer les dimensions, on remplace temporairement les
-                    # fonctions de dessin des flèches et des étiquettes du module
-                    # canapematplot par des fonctions neutres.
-                    original_funcs = {}
-                    if hide_dims:
-                        original_funcs['draw_double_arrow_vertical_cm'] = canapematplot.draw_double_arrow_vertical_cm
-                        original_funcs['draw_double_arrow_horizontal_cm'] = canapematplot.draw_double_arrow_horizontal_cm
-                        original_funcs['_label_backrests_armrests'] = canapematplot._label_backrests_armrests
-                        original_funcs['label_poly'] = canapematplot.label_poly
-                        original_funcs['label_poly_offset_cm'] = canapematplot.label_poly_offset_cm
-                        canapematplot.draw_double_arrow_vertical_cm = lambda *args, **kwargs: None
-                        canapematplot.draw_double_arrow_horizontal_cm = lambda *args, **kwargs: None
-                        canapematplot._label_backrests_armrests = lambda *args, **kwargs: None
-                        canapematplot.label_poly = lambda *args, **kwargs: None
-                        canapematplot.label_poly_offset_cm = lambda *args, **kwargs: None
+                    # Sauvegarder l'implémentation originale de write()
+                    original_write = canapematplot._MplTurtle.write
+                    if rotation_angle not in (0, 360, -360):
+                        def rotated_write(self, text, align="left", font=None):
+                            ha = {"left": "left", "center": "center", "right": "right"}.get(align, "left")
+                            kwargs = {}
+                            if font:
+                                if len(font) >= 2:
+                                    kwargs["fontfamily"] = font[0]
+                                    kwargs["fontsize"] = font[1]
+                                if len(font) >= 3 and str(font[2]).lower() == "bold":
+                                    kwargs["fontweight"] = "bold"
+                            # Appliquer une rotation négative de l'angle choisi
+                            self.ax.text(self.x, self.y, str(text), ha=ha, va="center",
+                                         rotation=-(rotation_angle), **kwargs)
+                        canapematplot._MplTurtle.write = rotated_write
                     # Générer le schéma avec les paramètres actuels
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
@@ -837,10 +829,9 @@ with tab6:
                         traversins_positions=traversins_positions,
                         couleurs=couleurs
                     )
-                    # Restaurer les fonctions originales si elles ont été modifiées
-                    if hide_dims:
-                        for name, func in original_funcs.items():
-                            setattr(canapematplot, name, func)
+                    # Restaurer la méthode write d'origine si elle a été surchargée
+                    if rotation_angle not in (0, 360, -360):
+                        canapematplot._MplTurtle.write = original_write
 
                     # Préparer une fonction utilitaire pour calculer les prix HT
                     base_params = {
@@ -1092,29 +1083,19 @@ with tab6:
 
                     # Affichage du schéma et d'un résumé simplifié du devis
                     st.success("✅ Schéma généré avec succès !")
-                    # Convertir la figure en image et appliquer la rotation et la légende si nécessaire
+                    # Convertir la figure en image et appliquer la rotation si nécessaire
                     img_preview = BytesIO()
                     fig.savefig(img_preview, format="png", bbox_inches="tight", dpi=150)
                     img_preview.seek(0)
                     # Récupérer l'angle de rotation choisi (0, 90, 180 ou 270)
                     rotation_angle = st.session_state.get("schema_rotation", 0)
-                    hide_dims = rotation_angle not in (0,)
                     # Ouvrir l'image pour appliquer les transformations
                     pil_img = Image.open(img_preview)
                     # Appliquer la rotation si nécessaire
                     if rotation_angle % 360 in (90, 180, 270):
                         pil_img = pil_img.rotate(rotation_angle, expand=True)
-                    # Ajouter une légende des dimensions si l'on a masqué les dimensions internes
-                    if hide_dims:
-                        pil_img = overlay_dimension_text(
-                            pil_img,
-                            st.session_state.type_canape,
-                            st.session_state.tx,
-                            st.session_state.ty,
-                            st.session_state.tz,
-                            st.session_state.profondeur,
-                            rotation_angle
-                        )
+                    # Ne pas ajouter de légende externe ; on conserve les dimensions internes qui ont
+                    # été pivotées individuellement via le patch de la méthode write.
                     # Convertir l'image finale en buffer pour l'affichage dans Streamlit
                     out_buf = BytesIO()
                     pil_img.save(out_buf, format="PNG")
@@ -1175,26 +1156,26 @@ with tab6:
                         'assise': ass_val,
                         'coussins': cous_val,
                     }
-                    # Déterminer l'angle choisi pour la rotation du schéma et si l'on doit
-                    # masquer les dimensions internes. Une rotation non nulle implique
-                    # que l'on préfère ajouter les dimensions à l'extérieur du schéma.
+                    # Déterminer l'angle choisi pour la rotation du schéma.  Si un angle
+                    # non nul est sélectionné, on surchage temporairement la méthode
+                    # _MplTurtle.write afin d'appliquer une rotation inverse sur les
+                    # textes des dimensions.  Cela permet au texte d'apparaître à
+                    # l'endroit une fois l'image globale pivotée.
                     rotation_angle = st.session_state.get("schema_rotation", 0)
-                    hide_dims_pdf = rotation_angle not in (0,)
-                    # Si on masque les dimensions internes, on remplace temporairement
-                    # les fonctions de dessin des flèches et des étiquettes dans
-                    # canapematplot par des fonctions neutres.
-                    original_funcs_pdf = {}
-                    if hide_dims_pdf:
-                        original_funcs_pdf['draw_double_arrow_vertical_cm'] = canapematplot.draw_double_arrow_vertical_cm
-                        original_funcs_pdf['draw_double_arrow_horizontal_cm'] = canapematplot.draw_double_arrow_horizontal_cm
-                        original_funcs_pdf['_label_backrests_armrests'] = canapematplot._label_backrests_armrests
-                        original_funcs_pdf['label_poly'] = canapematplot.label_poly
-                        original_funcs_pdf['label_poly_offset_cm'] = canapematplot.label_poly_offset_cm
-                        canapematplot.draw_double_arrow_vertical_cm = lambda *args, **kwargs: None
-                        canapematplot.draw_double_arrow_horizontal_cm = lambda *args, **kwargs: None
-                        canapematplot._label_backrests_armrests = lambda *args, **kwargs: None
-                        canapematplot.label_poly = lambda *args, **kwargs: None
-                        canapematplot.label_poly_offset_cm = lambda *args, **kwargs: None
+                    original_write_pdf = canapematplot._MplTurtle.write
+                    if rotation_angle not in (0, 360, -360):
+                        def rotated_write(self, text, align="left", font=None):
+                            ha = {"left": "left", "center": "center", "right": "right"}.get(align, "left")
+                            kwargs = {}
+                            if font:
+                                if len(font) >= 2:
+                                    kwargs["fontfamily"] = font[0]
+                                    kwargs["fontsize"] = font[1]
+                                if len(font) >= 3 and str(font[2]).lower() == "bold":
+                                    kwargs["fontweight"] = "bold"
+                            self.ax.text(self.x, self.y, str(text), ha=ha, va="center",
+                                         rotation=-(rotation_angle), **kwargs)
+                        canapematplot._MplTurtle.write = rotated_write
                     # Générer le schéma PDF avec les paramètres actuels
                     fig = generer_schema_canape(
                         type_canape=st.session_state.type_canape,
@@ -1209,10 +1190,9 @@ with tab6:
                         traversins_positions=traversins_positions,
                         couleurs=couleurs
                     )
-                    # Restaurer les fonctions originales après la génération
-                    if hide_dims_pdf:
-                        for name, func in original_funcs_pdf.items():
-                            setattr(canapematplot, name, func)
+                    # Restaurer la méthode write d'origine après la génération
+                    if rotation_angle not in (0, 360, -360):
+                        canapematplot._MplTurtle.write = original_write_pdf
                     # Sauvegarde de l'image en mémoire
                     tmp_buffer = BytesIO()
                     fig.savefig(tmp_buffer, format='png', bbox_inches='tight', dpi=150)
@@ -1224,17 +1204,8 @@ with tab6:
                     # Appliquer la rotation
                     if rotation_angle % 360 in (90, 180, 270):
                         pil_pdf_img = pil_pdf_img.rotate(rotation_angle, expand=True)
-                    # Ajouter la légende si nécessaire
-                    if hide_dims_pdf:
-                        pil_pdf_img = overlay_dimension_text(
-                            pil_pdf_img,
-                            st.session_state.type_canape,
-                            st.session_state.tx,
-                            st.session_state.ty,
-                            st.session_state.tz,
-                            st.session_state.profondeur,
-                            rotation_angle
-                        )
+                    # Ne pas ajouter de légende externe : les dimensions internes ont été
+                    # pivotées pour rester lisibles dans le schéma après rotation.
                     # Reconvertir en BytesIO pour l'injection dans le PDF
                     img_buffer = BytesIO()
                     pil_pdf_img.save(img_buffer, format='PNG')
