@@ -594,23 +594,39 @@ with tab3:
             acc_left = st.checkbox("Accoudoir Gauche", value=True)
             acc_right = st.checkbox("Accoudoir Droit", value=True)
             acc_bas = False
+            # Mémoriser dans la session les choix des accoudoirs
+            st.session_state['acc_left'] = acc_left
+            st.session_state['acc_right'] = acc_right
+            st.session_state['acc_bas'] = acc_bas
         elif "L" in st.session_state.type_canape:
             # Pour les canapés en L (avec ou sans angle) : on affiche uniquement l'accoudoir gauche et bas
             acc_left = st.checkbox("Accoudoir Gauche", value=True)
             # L'accoudoir droit n'est pas proposé pour les configurations en L
             acc_right = False
             acc_bas = st.checkbox("Accoudoir Bas", value=True)
+            # Mémoriser dans la session les choix des accoudoirs
+            st.session_state['acc_left'] = acc_left
+            st.session_state['acc_right'] = acc_right
+            st.session_state['acc_bas'] = acc_bas
         else:
             # Pour les canapés simples : accoudoirs gauche et droit visibles, pas d'accoudoir bas
             acc_left = st.checkbox("Accoudoir Gauche", value=True)
             acc_right = st.checkbox("Accoudoir Droit", value=True)
             acc_bas = False
+            # Mémoriser dans la session les choix des accoudoirs
+            st.session_state['acc_left'] = acc_left
+            st.session_state['acc_right'] = acc_right
+            st.session_state['acc_bas'] = acc_bas
 
         st.markdown("**Dossiers**")
         # Les dossiers sont conservés tels quels : Gauche et Droit visibles selon le type
         dossier_left = st.checkbox("Dossier Gauche", value=True) if "Simple" not in st.session_state.type_canape else False
         dossier_bas = st.checkbox("Dossier Bas", value=True)
         dossier_right = st.checkbox("Dossier Droit", value=True) if ("U" in st.session_state.type_canape) else False
+        # Mémoriser dans la session les choix des dossiers
+        st.session_state['dossier_left'] = dossier_left
+        st.session_state['dossier_bas'] = dossier_bas
+        st.session_state['dossier_right'] = dossier_right
 
     # Colonne droite : méridienne
     with col2:
@@ -629,6 +645,10 @@ with tab3:
         else:
             meridienne_side = "left"
             meridienne_len = 0
+        # Mémoriser dans la session les paramètres de la méridienne
+        st.session_state['has_meridienne'] = has_meridienne
+        st.session_state['meridienne_side'] = meridienne_side
+        st.session_state['meridienne_len'] = meridienne_len
 
         # fin de la colonne méridienne
 
@@ -667,11 +687,19 @@ with tab4:
 
     # Calculer le nombre effectif de traversins en fonction des positions sélectionnées.
     # Si aucune position n'est sélectionnée, considérer qu'il n'y a pas de traversin supplémentaire.
-    if traversins_positions:
-        nb_traversins_effectif = len(traversins_positions)
-    else:
-        nb_traversins_effectif = 0
+        if traversins_positions:
+            nb_traversins_effectif = len(traversins_positions)
+        else:
+            nb_traversins_effectif = 0
     has_surmatelas = st.checkbox("Surmatelas")
+
+    # Mémoriser dans la session les informations liées aux coussins et traversins
+    st.session_state['type_coussins'] = type_coussins
+    st.session_state['nb_coussins_deco'] = nb_coussins_deco
+    st.session_state['nb_traversins_supp'] = nb_traversins_supp
+    st.session_state['traversins_positions'] = traversins_positions
+    st.session_state['nb_traversins_effectif'] = nb_traversins_effectif
+    st.session_state['has_surmatelas'] = has_surmatelas
 
 # ONGLET 5 : MOUSSE
 with tab5:
@@ -684,6 +712,10 @@ with tab5:
         epaisseur = st.number_input("Épaisseur (cm)", min_value=15, max_value=35, value=25, step=5)
         # Ajout de l'option arrondis (par défaut cochée) permettant de majorer le prix de 20€ par banquette et par banquette d'angle
         arrondis = st.checkbox("Arrondis (bords arrondis)", value=True)
+        # Mémoriser ces valeurs dans la session pour l'aperçu global
+        st.session_state['type_mousse'] = type_mousse
+        st.session_state['epaisseur'] = epaisseur
+        st.session_state['arrondis'] = arrondis
     
     with col2:
         st.info("Les options de tissus seront affichées après validation de la configuration")
@@ -757,8 +789,10 @@ with tab6:
     col1, col2 = st.columns(2)
 
     with col1:
-        # Aperçu en direct : le schéma est mis à jour automatiquement à chaque changement de saisie
-        if True:
+        # L'aperçu est désormais affiché en bas de page pour toutes les catégories.
+        st.info("L'aperçu du schéma apparaît en bas de la page et se met à jour automatiquement.")
+        # On désactive le code de prévisualisation ici.
+        if False:
             with st.spinner("Mise à jour du schéma en cours..."):
                 try:
                     # Préparer le dictionnaire de couleurs à partir des choix de l'utilisateur
@@ -1283,4 +1317,125 @@ st.markdown("""
     <p>🛋️ Configurateur de Canapé Marocain Sur Mesure</p>
 </div>
 """, unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Aperçu global du schéma en bas de page
+#
+# Afin que l'aperçu du canapé soit visible dans tous les onglets, nous plaçons
+# ci‑dessous un bloc qui génère et affiche le schéma à partir des paramètres
+# saisis dans les onglets précédents.  Ce bloc est exécuté à chaque
+# rafraîchissement de l'application et se met donc à jour automatiquement
+# lorsque l'utilisateur modifie le formulaire.
+
+st.markdown("---")
+st.subheader("Aperçu du canapé")
+
+# Créer un conteneur pour l'aperçu afin qu'il soit visible sous tous les onglets.
+with st.spinner("Mise à jour du schéma en cours..."):
+    try:
+        # Construire la palette de couleurs en fonction des choix effectués dans l'onglet Couleurs.
+        struct_choice = st.session_state.get('color_structure_choice')
+        banq_choice = st.session_state.get('color_banquette_choice')
+        cous_choice = st.session_state.get('color_coussins_choice')
+        struct_val = COLOR_PALETTE.get(struct_choice)
+        if struct_val is None:
+            acc_val = ""
+            dos_val = ""
+        else:
+            acc_val = struct_val
+            dos_val = struct_val
+        ass_val = COLOR_PALETTE.get(banq_choice)
+        ass_val = ass_val if ass_val is not None else None
+        cous_val = COLOR_PALETTE.get(cous_choice)
+        couleurs_preview = {
+            'accoudoirs': acc_val,
+            'dossiers': dos_val,
+            'assise': ass_val,
+            'coussins': cous_val,
+        }
+
+        # Récupérer depuis la session toutes les options nécessaires au dessin du schéma.
+        # En cas d'absence de clé (par exemple si l'utilisateur n'a pas encore visité l'onglet),
+        # on fournit une valeur par défaut raisonnable.
+        tc = st.session_state.get('type_canape', 'Simple (S)')
+        tx = st.session_state.get('tx', None)
+        ty = st.session_state.get('ty', None)
+        tz = st.session_state.get('tz', None)
+        profondeur = st.session_state.get('profondeur', 70)
+
+        acc_left_val = st.session_state.get('acc_left', True)
+        acc_right_val = st.session_state.get('acc_right', True)
+        acc_bas_val = st.session_state.get('acc_bas', False)
+        dossier_left_val = st.session_state.get('dossier_left', False)
+        dossier_bas_val = st.session_state.get('dossier_bas', True)
+        dossier_right_val = st.session_state.get('dossier_right', False)
+        has_meridienne_val = st.session_state.get('has_meridienne', False)
+        meridienne_side_val = st.session_state.get('meridienne_side', 'left')
+        meridienne_len_val = st.session_state.get('meridienne_len', 0)
+
+        type_coussins_val = st.session_state.get('type_coussins', 'auto')
+        nb_traversins_supp_val = st.session_state.get('nb_traversins_supp', 0)
+        traversins_positions_val = st.session_state.get('traversins_positions', [])
+
+        # Angle de rotation choisi par l'utilisateur
+        rotation_angle_preview = st.session_state.get('schema_rotation', 0)
+
+        # Patcher temporairement la méthode write de canapematplot pour faire pivoter
+        # les annotations internes en sens inverse de l'angle global, uniquement si
+        # l'angle n'est pas nul.  Ainsi, les textes restent horizontaux après
+        # rotation globale de l'image.
+        original_write_preview = canapematplot._MplTurtle.write
+        if rotation_angle_preview not in (0, 360, -360):
+            def rotated_write_preview(self, text, align="left", font=None):
+                ha = {"left": "left", "center": "center", "right": "right"}.get(align, "left")
+                kwargs = {}
+                if font:
+                    if len(font) >= 2:
+                        kwargs["fontfamily"] = font[0]
+                        kwargs["fontsize"] = font[1]
+                    if len(font) >= 3 and str(font[2]).lower() == "bold":
+                        kwargs["fontweight"] = "bold"
+                self.ax.text(self.x, self.y, str(text), ha=ha, va="center", rotation=-(rotation_angle_preview), **kwargs)
+            canapematplot._MplTurtle.write = rotated_write_preview
+
+        # Générer le schéma à l'aide des paramètres récupérés
+        fig_preview = generer_schema_canape(
+            type_canape=tc,
+            tx=tx,
+            ty=ty,
+            tz=tz,
+            profondeur=profondeur,
+            acc_left=acc_left_val,
+            acc_right=acc_right_val,
+            acc_bas=acc_bas_val,
+            dossier_left=dossier_left_val,
+            dossier_bas=dossier_bas_val,
+            dossier_right=dossier_right_val,
+            meridienne_side=meridienne_side_val,
+            meridienne_len=meridienne_len_val,
+            coussins=type_coussins_val,
+            nb_traversins_supp=nb_traversins_supp_val,
+            traversins_positions=traversins_positions_val,
+            couleurs=couleurs_preview
+        )
+
+        # Restaurer la méthode originale afin de ne pas impacter d'autres tracés
+        if rotation_angle_preview not in (0, 360, -360):
+            canapematplot._MplTurtle.write = original_write_preview
+
+        # Convertir la figure en image et appliquer la rotation globale
+        preview_buffer = BytesIO()
+        fig_preview.savefig(preview_buffer, format="png", bbox_inches="tight", dpi=150)
+        preview_buffer.seek(0)
+        plt.close(fig_preview)
+        pil_preview = Image.open(preview_buffer)
+        # Si l'angle est non nul, on applique la rotation à l'image entière
+        if rotation_angle_preview % 360 in (90, 180, 270):
+            pil_preview = pil_preview.rotate(rotation_angle_preview, expand=True)
+
+        # Afficher l'aperçu du canapé
+        st.image(pil_preview, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"❌ Erreur lors de la génération de l'aperçu : {str(e)}")
 
