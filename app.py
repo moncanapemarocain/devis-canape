@@ -1438,9 +1438,11 @@ with st.spinner("Mise à jour du schéma en cours..."):
         except Exception:
             pass  # En cas d'échec du redimensionnement, on garde la taille originale
         # Créer trois colonnes pour centrer l'image : un espace vide à gauche et à droite.
+        # L'image est affichée à sa taille réelle (sans `use_container_width`) pour éviter qu'elle ne soit agrandie.
         left_space, img_col, right_space = st.columns([1, 6, 1])
         with img_col:
-            st.image(pil_preview, use_container_width=True)
+            # Utiliser la largeur réelle de l'image pour le paramètre `width` garantit qu'elle ne sera pas étirée.
+            st.image(pil_preview, width=pil_preview.width)
 
     except Exception as e:
         st.error(f"❌ Erreur lors de la génération de l'aperçu : {str(e)}")
